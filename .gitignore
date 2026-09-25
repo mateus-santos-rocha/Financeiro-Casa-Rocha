@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env*.local
+sync/.env
+sync/import-*.json
+sync/import-*.csv
+sync/import-*.ofx
+__pycache__/
+*.pyc
+.pytest_cache/
+supabase/.branches
+supabase/.temp

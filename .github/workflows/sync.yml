@@ -1,0 +1,27 @@
+name: sync-diario
+
+on:
+  schedule:
+    # Default 08h BRT (11h UTC). Para mudar, edite sync/schedule.yml
+    # e espelhe o cron aqui (limitação do GitHub: cron vive no workflow).
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r sync/requirements.txt
+      - name: Rodar sync Pluggy (multi-conta)
+        env:
+          PLUGGY_CLIENT_ID_1: ${{ secrets.PLUGGY_CLIENT_ID_1 }}
+          PLUGGY_CLIENT_SECRET_1: ${{ secrets.PLUGGY_CLIENT_SECRET_1 }}
+          PLUGGY_CLIENT_ID_2: ${{ secrets.PLUGGY_CLIENT_ID_2 }}
+          PLUGGY_CLIENT_SECRET_2: ${{ secrets.PLUGGY_CLIENT_SECRET_2 }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python sync/pluggy.py

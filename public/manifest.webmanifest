@@ -1,0 +1,9 @@
+{
+  "name": "Financeiro Casa Rocha",
+  "short_name": "Casa Rocha",
+  "start_url": "/movimentacoes",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": []
+}

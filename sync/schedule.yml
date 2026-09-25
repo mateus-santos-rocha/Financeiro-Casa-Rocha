@@ -1,0 +1,5 @@
+# Agendamento do sync — edite só este arquivo para mudar o horário.
+# Formato cron GitHub Actions (UTC). 08h BRT = 11h UTC.
+cron: "0 11 * * *"
+timezone: America/Sao_Paulo
+window_days: 7
