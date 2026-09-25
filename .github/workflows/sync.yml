@@ -2,9 +2,10 @@ name: sync-diario
 
 on:
   schedule:
-    # Default 08h BRT (11h UTC). Para mudar, edite sync/schedule.yml
-    # e espelhe o cron aqui (limitação do GitHub: cron vive no workflow).
-    - cron: "0 11 * * *"
+    # 4x/dia BRT: 06h, 12h, 18h, 00h (= 09, 15, 21, 03 UTC).
+    # Para mudar, edite sync/schedule.yml e espelhe o cron aqui
+    # (limitação do GitHub: cron vive no workflow).
+    - cron: "0 9,15,21,3 * * *"
   workflow_dispatch: {}
 
 jobs:
