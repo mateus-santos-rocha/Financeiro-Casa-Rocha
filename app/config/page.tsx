@@ -11,9 +11,32 @@ export default async function ConfigPage() {
     schedule = fs.readFileSync(path.join(process.cwd(), "sync", "schedule.yml"), "utf8");
   } catch { /* mantém fallback */ }
 
+  const repo = process.env.NEXT_PUBLIC_GITHUB_REPO ?? "";
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold tracking-tight">Config — sync & conexões</h1>
+      <div className="card">
+        <h2 className="font-semibold">Sincronizar agora</h2>
+        {repo ? (
+          <p className="mt-2 text-sm text-slate-600">
+            <a className="btn-primary" href={`https://github.com/${repo}/actions/workflows/sync.yml`} target="_blank" rel="noreferrer">
+              Abrir Actions e rodar sync-diario
+            </a>
+            <span className="ml-2">Na página do workflow, clique em <em>Run workflow</em>.</span>
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">
+            Defina <code>NEXT_PUBLIC_GITHUB_REPO=usuario/repo</code> no deploy para ganhar o botão de sync manual.
+            Sem isso, rode em Actions → sync-diario → Run workflow.
+          </p>
+        )}
+        <p className="mt-2 text-sm text-slate-500">
+          Se algum banco pedir reconexão (MFA expirou), o sintoma é o sync passar a trazer 0 items/transações:
+          revalide a conexão no <code>meu.pluggy.ai</code> (ou no widget Pluggy Connect) e rode o manual de novo.
+          Nenhum segredo bancário fica no nosso banco.
+        </p>
+      </div>
       <div className="card">
         <h2 className="font-semibold">Agendamento atual</h2>
         <pre className="mt-2 overflow-x-auto rounded-xl bg-slate-900 p-3 text-xs text-slate-100">{schedule}</pre>

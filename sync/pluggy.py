@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from normalize import normalize_amount
+from normalize import inv_indexer, inv_issuer, inv_maturity, inv_rate, normalize_amount
 
 API_BASE = os.environ.get("PLUGGY_API_BASE", "https://api.pluggy.ai")
 
@@ -157,6 +157,23 @@ def fetch_investments(api_key: str, item_id: str) -> list[dict]:
     return res.get("results") or []
 
 
+def inv_current(inv: dict) -> float | None:
+    """Valor total atual do lote. Cuidado: `value` é PREÇO UNITÁRIO neste conector."""
+    for k in ("amount", "currentValue", "value"):
+        v = inv.get(k)
+        if v is not None:
+            return float(v)
+    return None
+
+
+def inv_invested(inv: dict) -> float | None:
+    for k in ("balance", "amountInvested"):
+        v = inv.get(k)
+        if v is not None:
+            return float(v)
+    return None
+
+
 def bank_from_connector(name: str) -> str:
     n = (name or "").lower()
     if "nubank" in n or "nu " in n:
@@ -275,34 +292,43 @@ def run() -> dict:
                 for inv in fetch_investments(key, item_id):
                     stats["investments"] += 1
                     if not dry:
+                        # Lê o existente para NÃO apagar edição manual quando a API omite o campo
+                        prev = sb.table("investments").select(  # type: ignore
+                            "id,issuer,indexer,rate,maturity_date").eq(
+                            "pluggy_id", inv.get("id")).execute().data
+                        prev = prev[0] if prev else {}
+                        issuer = inv_issuer(inv)
                         sb.table("investments").upsert({  # type: ignore
                             "pluggy_id": inv.get("id"),
+                            "pluggy_item_id": item_id,
                             "account_id": acc_map.get(inv.get("accountId") or ""),
                             "name": inv.get("name"),
                             "type": (inv.get("type") or "").lower() or None,
-                            "issuer": (inv.get("issuer") or {}).get("name")
-                            if isinstance(inv.get("issuer"), dict) else inv.get("issuer"),
-                            "indexer": inv.get("indexer"),
-                            "rate": inv.get("rate") or inv.get("profitability"),
-                            "maturity_date": inv.get("maturityDate"),
+                            "issuer": issuer or prev.get("issuer"),
+                            "indexer": inv_indexer(inv) or prev.get("indexer"),
+                            "rate": inv_rate(inv) or prev.get("rate"),
+                            "maturity_date": inv_maturity(inv) or prev.get("maturity_date"),
                             "quantity": inv.get("quantity"),
                             "price": inv.get("price"),
-                            "amount_invested": inv.get("amountInvested") or inv.get("balance"),
-                            "current_value": inv.get("currentValue") or inv.get("value"),
+                            "amount_invested": inv_invested(inv),
+                            "current_value": inv_current(inv),
                             "raw": inv,
+                            "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(),
                             "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
                         }, on_conflict="pluggy_id").execute()
-                        row = sb.table("investments").select("id").eq(  # type: ignore
-                            "pluggy_id", inv.get("id")).execute().data
+                        row = [{"id": prev["id"]}] if prev.get("id") else []
                         if row:
                             sb.table("investment_snapshots").upsert({  # type: ignore
                                 "investment_id": row[0]["id"], "date": to_date,
-                                "value": inv.get("currentValue") or inv.get("value"),
-                                "invested": inv.get("amountInvested") or inv.get("balance"),
+                                "value": inv_current(inv),
+                                "invested": inv_invested(inv),
                             }, on_conflict="investment_id,date").execute()
                             stats["snapshots"] += 1
                 print(f"[{holder}/{bank}] item {item_id}: ok")
         if not dry:
+            from auto_rules import apply_auto_rules
+            for k, v in apply_auto_rules(sb, days=WINDOW_DAYS).items():
+                stats[k] = v
             log_end(sb, run_id, "ok", stats)
     except Exception as e:
         stats["error"] = str(e)[:500]

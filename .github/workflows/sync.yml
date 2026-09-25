@@ -22,6 +22,10 @@ jobs:
           PLUGGY_CLIENT_SECRET_1: ${{ secrets.PLUGGY_CLIENT_SECRET_1 }}
           PLUGGY_CLIENT_ID_2: ${{ secrets.PLUGGY_CLIENT_ID_2 }}
           PLUGGY_CLIENT_SECRET_2: ${{ secrets.PLUGGY_CLIENT_SECRET_2 }}
+          PLUGGY_ITEM_IDS_1: ${{ secrets.PLUGGY_ITEM_IDS_1 }}
+          PLUGGY_ITEM_BANKS_1: ${{ secrets.PLUGGY_ITEM_BANKS_1 }}
+          PLUGGY_ITEM_IDS_2: ${{ secrets.PLUGGY_ITEM_IDS_2 }}
+          PLUGGY_ITEM_BANKS_2: ${{ secrets.PLUGGY_ITEM_BANKS_2 }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python sync/pluggy.py
