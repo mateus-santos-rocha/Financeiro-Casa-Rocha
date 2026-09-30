@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchAll } from "@/lib/fetch-all";
+import { expenseKind, incomeKind } from "@/lib/classify";
 import { fmtBRL } from "@/lib/format";
 import { AutoForm } from "@/components/AutoForm";
 import { HistoryChart } from "@/components/HistoryChart";
@@ -11,28 +12,45 @@ export default async function HistoricoPage({ searchParams }: { searchParams: { 
 
   type HTx = {
     date: string; amount: number | null;
+    description: string | null; category_pluggy: string | null;
     transaction_tags: { tags: { name: string } | null }[];
   };
+  const hasTag = (t: HTx, name: string) => t.transaction_tags.some((x) => x.tags?.name === name);
   // fetchAll: o PostgREST corta em 1000 linhas; sem paginar, os meses novos somem.
   const data = await fetchAll<HTx>(() =>
     sb
       .from("transactions")
-      .select("date,amount,transaction_tags(tags(name))")
+      .select("date,amount,description,category_pluggy,transaction_tags(tags(name))")
       .order("date", { ascending: true }),
   );
-
-  const hasTag = (t: HTx, name: string) => t.transaction_tags.some((x) => x.tags?.name === name);
-  const own = new Map<string, { rec: number; des: number }>();
-  const adv = new Map<string, { rec: number; des: number }>();
-  for (const t of (data ?? []) as unknown as HTx[]) {
+  type Kinds = {
+    salario: number; transfIn: number; resgate: number; outrasRec: number;
+    despesa: number; aporte: number; transfOut: number;
+  };
+  const zeroKinds = (): Kinds =>
+    ({ salario: 0, transfIn: 0, resgate: 0, outrasRec: 0, despesa: 0, aporte: 0, transfOut: 0 });
+  const own = new Map<string, Kinds>();
+  const adv = new Map<string, Kinds>();
+  for (const t of data) {
     if (hasTag(t, "btc")) continue; // BTC vive nos investimentos
-    if (!comTransf && hasTag(t, "transferencia-interna")) continue;
+    const isTransf = hasTag(t, "transferencia-interna");
+    if (!comTransf && isTransf) continue;
     const k = t.date.slice(0, 7);
     const target = hasTag(t, "adiantamento") ? adv : own;
-    const cur = target.get(k) ?? { rec: 0, des: 0 };
+    const cur = target.get(k) ?? zeroKinds();
     const v = Number(t.amount ?? 0);
-    if (v >= 0) cur.rec += v;
-    else cur.des += Math.abs(v);
+    if (v >= 0) {
+      const kind = incomeKind(t, isTransf, hasTag(t, "salario"));
+      if (kind === "salario") cur.salario += v;
+      else if (kind === "transferencia") cur.transfIn += v;
+      else if (kind === "resgate") cur.resgate += v;
+      else cur.outrasRec += v;
+    } else {
+      const kind = expenseKind(t, isTransf);
+      if (kind === "aporte") cur.aporte += Math.abs(v);
+      else if (kind === "transferencia") cur.transfOut += Math.abs(v);
+      else cur.despesa += Math.abs(v);
+    }
     target.set(k, cur);
   }
   const hoje = new Date().toISOString().slice(0, 7);
@@ -44,12 +62,18 @@ export default async function HistoricoPage({ searchParams }: { searchParams: { 
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   };
   const keys = [...new Set([...own.keys(), ...adv.keys()])].sort().filter((k) => k <= hoje).slice(-n);
+  const sumKinds = (a: Kinds, b: Kinds): Kinds => ({
+    salario: a.salario + b.salario, transfIn: a.transfIn + b.transfIn,
+    resgate: a.resgate + b.resgate, outrasRec: a.outrasRec + b.outrasRec,
+    despesa: a.despesa + b.despesa, aporte: a.aporte + b.aporte,
+    transfOut: a.transfOut + b.transfOut,
+  });
   const rows = keys.map((k) => {
-    const o = own.get(k) ?? { rec: 0, des: 0 };
-    const a = adv.get(prevOf(k)) ?? { rec: 0, des: 0 };
-    const rec = o.rec + a.rec;
-    const des = o.des + a.des;
-    return { mes: k, rec, des, saldo: rec - des };
+    // Adiantamento: o próprio do mês sai, o do mês anterior entra (mesma regra de antes).
+    const m = sumKinds(own.get(k) ?? zeroKinds(), adv.get(prevOf(k)) ?? zeroKinds());
+    const rec = m.salario + m.transfIn + m.resgate + m.outrasRec;
+    const des = m.despesa + m.aporte + m.transfOut;
+    return { mes: k, ...m, rec, des, saldo: rec - des };
   });
 
   return (

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { displayCategory, fmtBRL, fmtDate } from "@/lib/format";
+import { displayCategory, fmtBRL, fmtDate, holderLabel } from "@/lib/format";
 import { addTagToTx, applyTagBatch, createRule, removeTagFromTx, setOverride } from "@/lib/actions";
 
 export type MovRow = {
@@ -120,7 +120,7 @@ export function MovTable({ rows, suggestions, sort, dir, baseQs, allTags }: {
                   <td className="whitespace-nowrap">{fmtDate(t.date)}</td>
                   <td>{t.description ?? "—"}</td>
                   <td className="whitespace-nowrap text-slate-500">
-                    {t.accounts?.bank ?? "—"} · {t.accounts?.holder === "esposa" ? "Esposa" : "Você"}
+                    {t.accounts?.bank ?? "—"} · {holderLabel[t.accounts?.holder === "esposa" ? "esposa" : "voce"]}
                   </td>
                   <td>
                     {catEdit === t.id ? (

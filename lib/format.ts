@@ -96,7 +96,7 @@ export const displayCategory = (t: { category_override: string | null; category_
   t.category_override ?? translateCategory(t.category_pluggy);
 
 export type Holder = "voce" | "esposa";
-export const holderLabel: Record<Holder, string> = { voce: "Você", esposa: "Esposa" };
+export const holderLabel: Record<Holder, string> = { voce: "Mateus", esposa: "Laís" };
 
 /** Família do título p/ consolidação: Tesouro Direto junta as variações de nome. */
 export function familyOf(name: string | null): string {

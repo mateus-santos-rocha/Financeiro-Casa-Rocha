@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { displayCategory } from "@/lib/format";
+import { displayCategory, holderLabel } from "@/lib/format";
 
 function csvCell(v: string | number | null | undefined): string {
   const s = String(v ?? "");
@@ -50,7 +50,7 @@ export async function GET(req: Request) {
       csvCell(t.date),
       csvCell(t.description),
       csvCell(t.accounts?.name ?? t.accounts?.bank),
-      csvCell(t.accounts?.holder === "esposa" ? "esposa" : "voce"),
+      csvCell(holderLabel[t.accounts?.holder === "esposa" ? "esposa" : "voce"]),
       csvCell(displayCategory(t)),
       csvCell(String(Number(t.amount ?? 0)).replace(".", ",")),
     ].join(";"));

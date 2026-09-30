@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchAll } from "@/lib/fetch-all";
-import { displayCategory, fmtBRL } from "@/lib/format";
+import { INCOME_META, incomeKind } from "@/lib/classify";
+import { displayCategory, fmtBRL, holderLabel } from "@/lib/format";
 import { AutoForm } from "@/components/AutoForm";
 import { Charts } from "@/components/Charts";
 import { Donut } from "@/components/Donut";
@@ -115,6 +116,16 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
       .sort((a, b) => b.total - a.total);
 
   const recRows = rows.filter((t) => Number(t.amount ?? 0) > 0);
+  // Natureza da entrada (cores fixas por natureza — filtra zeradas sem desalinhar).
+  const natFull = (["salario", "transferencia", "resgate", "outras"] as const).map((k) => ({
+    name: INCOME_META[k].label,
+    color: INCOME_META[k].color,
+    value: recRows
+      .filter((t) => incomeKind(t, hasTag(t, TRANSF), hasTag(t, "salario")) === k)
+      .reduce((a, t) => a + Number(t.amount ?? 0), 0),
+  })).filter((s) => s.value > 0);
+  const natIn = natFull.map(({ name, value }) => ({ name, value }));
+  const natColors = natFull.map((s) => s.color);
   const recCat = groupSum(recRows).slice(0, 7);
   const recCatResto = groupSum(recRows).slice(7).reduce((a, c) => a + c.total, 0);
   const recPie = recCatResto > 0 ? [...recCat, { categoria: "Outras", total: recCatResto }] : recCat;
@@ -131,7 +142,7 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
 
   const porTitular = (["voce", "esposa"] as const).map((h) => {
     const s = summarize(rows.filter((t) => (t.accounts?.holder ?? "voce") === h));
-    return { holder: h === "voce" ? "Você" : "Esposa", ...s };
+    return { holder: holderLabel[h], ...s };
   });
 
   const top = porCategoria[0];
@@ -243,6 +254,13 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
           <h2 className="font-semibold">Receitas por categoria</h2>
           <Donut data={recPie.map((c) => ({ name: c.categoria, value: c.total }))} height={300} />
         </div>
+        <div className="card">
+          <h2 className="font-semibold">Entradas por natureza</h2>
+          <Donut data={natIn} colors={natColors} height={300} />
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
         <div className="card">
           <h2 className="font-semibold">Top 10 origens (receitas)</h2>
           <table className="table mt-2">

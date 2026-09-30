@@ -29,6 +29,8 @@ npm run dev                  # http://localhost:3000/login
 ## Conceitos que o app assume (importante)
 - **Categoria exibida** = `category_override` (sua) ou `category_pluggy` (automática).
 - **Transferências internas** (conta↔conta, resgate→aporte, compra/venda do ETF parking): marque com a tag `transferencia-interna` — Análise e Histórico as excluem por padrão. Pix entre o casal e deslocamentos p/ conta própria (nome do titular como contraparte) são marcados automaticamente (migration 0018).
+- **Natureza da entrada/saída** (`lib/classify.ts`, só visual — não muda totais): entradas abrem em Salário (verde escuro — `PAGAMENTO DE SALARIO` + tag `salario`, ex. clínica da Laís via migration 0019), Transferências (verde claro), Resgates de investimento (teal) e Outras; saídas em Despesas (vermelho) e Aportes (vermelho claro). Histórico empilha por mês; Análise tem o donut "Entradas por natureza".
+- **Titulares**: códigos no banco seguem `voce|esposa`; rótulos na UI vêm de `holderLabel` (`lib/format.ts`): Mateus e Laís.
 - **Adiantamento salarial** (regime de competência): crédito do adiantamento + rendimentos do parking levam a tag `adiantamento` e **contam no mês seguinte** (Análise e Histórico deslocam automaticamente). Posição do ETF parking marcada com `adiantamento` fica fora do patrimônio.
 - **BTC (cashback convertido)**: cada conversão leva a tag `btc` e **sai de Movimentações/Análise/Histórico**; o BTC vive como posição **manual** em Investimentos (`Adicionar manual`, com aplicado/atual editáveis no *editar*).
 - **Investimentos, `value` x `amount`**: neste conector, `value` é PREÇO UNITÁRIO e `amount` é o TOTAL do lote. O sync usa `amount` (atual) e `balance` (aplicado). Não trocar.

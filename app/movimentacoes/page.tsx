@@ -120,8 +120,8 @@ export default async function MovimentacoesPage({
           <label className="label" htmlFor="titular">Titular</label>
           <select id="titular" name="titular" defaultValue={searchParams.titular ?? ""} className="input">
             <option value="">Todos</option>
-            <option value="voce">Você</option>
-            <option value="esposa">Esposa</option>
+            <option value="voce">Mateus</option>
+            <option value="esposa">Laís</option>
           </select>
         </div>
         <div>

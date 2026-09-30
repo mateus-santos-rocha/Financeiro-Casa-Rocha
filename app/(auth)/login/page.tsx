@@ -32,7 +32,7 @@ function LoginForm() {
     <div className="mx-auto mt-16 max-w-sm">
       <div className="card">
         <h1 className="text-xl font-bold">Entrar — Casa Rocha</h1>
-        <p className="mt-1 text-sm text-slate-500">Use o e-mail cadastrado no Supabase Auth (você ou esposa).</p>
+        <p className="mt-1 text-sm text-slate-500">Use o e-mail cadastrado no Supabase Auth (Mateus ou Laís).</p>
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
           <div>
             <label className="label" htmlFor="email">E-mail</label>

@@ -2,8 +2,14 @@
 
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fmtBRL } from "@/lib/format";
+import { EXPENSE_META, INCOME_META } from "@/lib/classify";
 
-export type MonthRow = { mes: string; rec: number; des: number; saldo: number };
+export type MonthRow = {
+  mes: string;
+  salario: number; transfIn: number; resgate: number; outrasRec: number;
+  despesa: number; aporte: number; transfOut: number;
+  rec: number; des: number; saldo: number;
+};
 
 export function HistoryChart({ rows }: { rows: MonthRow[] }) {
   return (
@@ -11,14 +17,19 @@ export function HistoryChart({ rows }: { rows: MonthRow[] }) {
       <h2 className="font-semibold">Receitas x Despesas x Saldo</h2>
       <div className="h-72">
         <ResponsiveContainer>
-          <ComposedChart data={rows}>
+          <ComposedChart data={rows} barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
             <YAxis tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} />
             <Tooltip formatter={(v: number) => fmtBRL(v)} />
             <Legend />
-            <Bar dataKey="rec" name="Receitas" fill="#10b981" />
-            <Bar dataKey="des" name="Despesas" fill="#ef4444" />
+            <Bar dataKey="salario" name={INCOME_META.salario.label} stackId="rec" fill={INCOME_META.salario.color} />
+            <Bar dataKey="transfIn" name="Transferências" stackId="rec" fill={INCOME_META.transferencia.color} />
+            <Bar dataKey="resgate" name={INCOME_META.resgate.label} stackId="rec" fill={INCOME_META.resgate.color} />
+            <Bar dataKey="outrasRec" name="Outras receitas" stackId="rec" fill={INCOME_META.outras.color} />
+            <Bar dataKey="despesa" name={EXPENSE_META.despesa.label} stackId="des" fill={EXPENSE_META.despesa.color} />
+            <Bar dataKey="aporte" name={EXPENSE_META.aporte.label} stackId="des" fill={EXPENSE_META.aporte.color} />
+            <Bar dataKey="transfOut" name="Transferências (saída)" stackId="des" fill={EXPENSE_META.transferencia.color} />
             <Line type="monotone" dataKey="saldo" name="Saldo" stroke="#0f172a" strokeWidth={2} dot={false} />
           </ComposedChart>
         </ResponsiveContainer>

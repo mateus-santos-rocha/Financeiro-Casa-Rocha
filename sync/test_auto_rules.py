@@ -36,6 +36,12 @@ def test_transfer_casal_e_propria():
     assert not rule_matches(recebida, "PAGAMENTO DE SALARIO", "bv")
 
 
+def test_salario_lais():
+    r = {"match": "pediatherapies", "bank": None, "action": "tag"}
+    assert rule_matches(r, "Transferência Recebida|Pediatherapies Clinica De Fisioterapia E Reabil", "nubank")
+    assert not rule_matches(r, "PAGAMENTO DE SALARIO", "bv")
+
+
 def test_compute_roll():
     qty, inv, cur = compute_roll(0.0, 0.0, 500.0, 500000.0)
     assert abs(qty - 0.001) < 1e-9
