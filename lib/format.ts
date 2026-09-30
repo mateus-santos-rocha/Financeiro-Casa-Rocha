@@ -112,6 +112,7 @@ export const translateInvType = (t: string | null | undefined) => {
     equity: "Ações/FII",
     etf: "ETF",
     security: "Títulos",
+    previdencia: "Previdência",
     coe: "COE",
     other: "Outros",
     crypto: "Cripto",

@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { displayCategory, fmtBRL } from "@/lib/format";
+import { AutoForm } from "@/components/AutoForm";
 import { MovTable, type MovRow } from "@/components/MovTable";
 
 const SORTS = ["date", "description", "account", "category", "tags", "value"] as const;
@@ -110,7 +111,7 @@ export default async function MovimentacoesPage({
         </span>
       </div>
 
-      <form className="card flex flex-wrap gap-3" method="get">
+      <AutoForm className="card flex flex-wrap gap-3">
         <div>
           <label className="label" htmlFor="mes">Mês</label>
           <input id="mes" name="mes" type="month" defaultValue={mes} className="input" />
@@ -147,10 +148,10 @@ export default async function MovimentacoesPage({
             <input type="checkbox" name="showBtc" value="1" defaultChecked={showBtc} />
             mostrar BTC
           </label>
-          <button className="btn-primary" type="submit">Filtrar</button>
+          <button className="btn-ghost" type="submit">Filtrar</button>
           <a className="btn-ghost" href="/movimentacoes">Limpar</a>
         </div>
-      </form>
+      </AutoForm>
 
       {error && <p role="alert" className="text-sm text-red-600">Erro ao carregar: {error.message}</p>}
 

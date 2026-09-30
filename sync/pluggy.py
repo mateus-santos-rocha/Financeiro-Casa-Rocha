@@ -153,8 +153,20 @@ def fetch_transactions(api_key: str, account_id: str,
 
 
 def fetch_investments(api_key: str, item_id: str) -> list[dict]:
-    res = _http("GET", "/investments", api_key, params={"itemId": item_id})
-    return res.get("results") or []
+    out: list[dict] = []
+    cursor: str | None = None
+    for _ in range(10):
+        params: dict = {"itemId": item_id}
+        if cursor:
+            params["cursor"] = cursor
+        res = _http("GET", "/investments", api_key, params=params)
+        page = res.get("results") or []
+        out.extend(page)
+        pg = res.get("page")
+        cursor = (pg.get("nextCursor") if isinstance(pg, dict) else None) or res.get("nextCursor")
+        if not cursor or not page:
+            break
+    return out
 
 
 def inv_current(inv: dict) -> float | None:

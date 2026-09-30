@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { fmtBRL } from "@/lib/format";
+import { AutoForm } from "@/components/AutoForm";
 import { HistoryChart } from "@/components/HistoryChart";
 
 export default async function HistoricoPage({ searchParams }: { searchParams: { meses?: string; comTransf?: string } }) {
@@ -52,7 +53,7 @@ export default async function HistoricoPage({ searchParams }: { searchParams: { 
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <h1 className="text-2xl font-bold tracking-tight">Histórico</h1>
-        <form method="get" className="flex flex-wrap items-center gap-2">
+        <AutoForm className="flex flex-wrap items-center gap-2">
           <select name="meses" defaultValue={String(n)} className="input" aria-label="Intervalo">
             <option value="6">6 meses</option>
             <option value="12">12 meses</option>
@@ -63,8 +64,7 @@ export default async function HistoricoPage({ searchParams }: { searchParams: { 
             <input type="checkbox" name="comTransf" value="1" defaultChecked={comTransf} />
             incluir transferências
           </label>
-          <button className="btn-primary" type="submit">Ver</button>
-        </form>
+        </AutoForm>
       </div>
 
       {rows.length > 0 && <HistoryChart rows={rows} />}

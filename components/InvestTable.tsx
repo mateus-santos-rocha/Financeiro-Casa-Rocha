@@ -19,6 +19,7 @@ export type InvRow = {
   invested_override: number | null;
   current_value: number | null;
   last_seen_at: string | null;
+  updated_at?: string | null;
   closed_manual: boolean | null;
   held_since: string | null;
   base_eff?: number | null;

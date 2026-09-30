@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { displayCategory, fmtBRL } from "@/lib/format";
+import { AutoForm } from "@/components/AutoForm";
 import { Charts } from "@/components/Charts";
 import { Donut } from "@/components/Donut";
 
@@ -162,14 +163,13 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <h1 className="text-2xl font-bold tracking-tight">Análise</h1>
-        <form method="get" className="flex flex-wrap items-center gap-2">
+        <AutoForm className="flex flex-wrap items-center gap-2">
           <input name="mes" type="month" defaultValue={mes} className="input" aria-label="Mês" />
           <label className="flex items-center gap-1 text-sm text-slate-600">
             <input type="checkbox" name="comTransf" value="1" defaultChecked={searchParams.comTransf === "1"} />
             incluir transferências
           </label>
-          <button className="btn-primary" type="submit">Ver</button>
-        </form>
+        </AutoForm>
         <span className="text-sm text-slate-500">vs {mPrev}</span>
       </div>
 

@@ -15,7 +15,7 @@ export default async function InvestimentosPage() {
   const [{ data }, { data: accs }] = await Promise.all([
     sb
       .from("investments")
-      .select("id,pluggy_id,name,type,issuer,indexer,rate,maturity_date,quantity,amount_invested,invested_override,current_value,last_seen_at,closed_manual,held_since,pluggy_item_id,accounts(bank,holder),investment_tags(tags(id,name,color))")
+      .select("id,pluggy_id,name,type,issuer,indexer,rate,maturity_date,quantity,amount_invested,invested_override,current_value,last_seen_at,updated_at,closed_manual,held_since,pluggy_item_id,accounts(bank,holder),investment_tags(tags(id,name,color))")
       .order("current_value", { ascending: false })
       .limit(500),
     sb.from("accounts").select("bank,pluggy_item_id"),
@@ -39,13 +39,23 @@ export default async function InvestimentosPage() {
   const isParking = (r: Row) => r.investment_tags.some((x) => x.tags?.name === PARKING);
   const cutoff = Date.now() - STALE_DAYS * 24 * 3600 * 1000;
   const isStale = (r: Row) => !r.last_seen_at || new Date(r.last_seen_at).getTime() < cutoff;
+  const isManual = (r: Row) => (r.pluggy_id ?? "").startsWith("manual:");
   const isClosed = (r: Row) =>
     r.closed_manual === true ||
-    (!isStale(r) && Number(r.current_value ?? 0) < DUST_LIMIT);
+    (!isManual(r) && !isStale(r) && Number(r.current_value ?? 0) < DUST_LIMIT);
 
   const active = rows.filter((r) => !isStale(r) && !isClosed(r));
   const closed = rows.filter(isClosed);
   const stale = rows.filter(isStale);
+
+  // Alerta: posição manual (não-cripto) sem atualização no mês corrente
+  const monthStart = `${new Date().toISOString().slice(0, 7)}-01`;
+  const staleManual = rows.filter(
+    (r) =>
+      (r.pluggy_id ?? "").startsWith("manual:") &&
+      (r.type ?? "") !== "crypto" &&
+      !(r.updated_at ?? "").startsWith(monthStart.slice(0, 7))
+  );
 
   // Núcleo das contas: ativas exceto reserva e parking de adiantamento
   // (ambos têm cards/fluxo próprios e não entram no patrimônio)
@@ -123,6 +133,13 @@ export default async function InvestimentosPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold tracking-tight">Investimentos</h1>
+
+      {staleManual.length > 0 && (
+        <p role="alert" className="card border-amber-200 bg-amber-50 text-sm text-amber-900">
+          Falta atualizar neste mês: <strong>{staleManual.map((r) => r.name ?? "?").join(", ")}</strong>.
+          Abra o título abaixo e edite o valor atual.
+        </p>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-4">
         <div className="card"><p className="text-xs uppercase text-slate-500">Patrimônio atual</p><p className="text-2xl font-bold">{fmtBRL(totalAtual)}</p><p className="text-xs text-slate-400">sem reserva</p></div>

@@ -23,6 +23,19 @@ def test_match_por_categoria():
     assert not rule_matches(r, "Pagamento recebido", "nubank", "Transfers")
 
 
+def test_transfer_casal_e_propria():
+    enviada = {"match": "mateus santos rocha", "bank": None, "action": "tag"}
+    assert rule_matches(enviada, "Transferência enviada|Mateus Santos Rocha", "nubank")
+    assert rule_matches(enviada, "PIX - ENVIADO   08/10 09:46 Mateus Santos Rocha", "bb")
+    assert rule_matches(enviada, "Mateus Santos Rocha", "bv")
+    recebida = {"match": "lais coutinho de souza rocha", "bank": None, "action": "tag"}
+    assert rule_matches(recebida, "Transferência Recebida|Lais Coutinho de Souza Rocha", "nubank")
+    assert rule_matches(recebida, "Transferência enviada|LAIS COUTINHO DE SOUZA ROCHA", "nubank")
+    # salário não é transferência interna
+    assert not rule_matches(enviada, "PAGAMENTO DE SALARIO", "bv")
+    assert not rule_matches(recebida, "PAGAMENTO DE SALARIO", "bv")
+
+
 def test_compute_roll():
     qty, inv, cur = compute_roll(0.0, 0.0, 500.0, 500000.0)
     assert abs(qty - 0.001) < 1e-9

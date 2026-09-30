@@ -86,6 +86,7 @@ export async function updateInvestment(
     indexer: clean(fields.indexer),
     rate: clean(fields.rate),
     maturity_date: clean(fields.maturity_date),
+    updated_at: new Date().toISOString(), // alimenta o alerta de "atualizar no mês"
   };
   if (typeof patch.maturity_date === "string" && !/^\d{4}-\d{2}-\d{2}$/.test(patch.maturity_date)) {
     throw new Error("Vencimento no formato AAAA-MM-DD");
