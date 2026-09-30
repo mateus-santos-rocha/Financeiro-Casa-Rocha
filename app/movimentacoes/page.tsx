@@ -81,8 +81,7 @@ export default async function MovimentacoesPage({
   const { data: cats } = await sb
     .from("transactions")
     .select("category_pluggy,category_override")
-    .limit(5000);
-  const suggestions = [...new Set(
+    .limit(5000);  const suggestions = [...new Set(
     ((cats ?? []) as { category_pluggy: string | null; category_override: string | null }[])
       .flatMap((c) => [c.category_override, c.category_pluggy])
       .filter(Boolean) as string[]

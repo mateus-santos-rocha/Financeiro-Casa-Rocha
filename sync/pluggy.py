@@ -136,16 +136,33 @@ def fetch_accounts(api_key: str, item_id: str) -> list[dict]:
 
 def fetch_transactions(api_key: str, account_id: str,
                        from_date: str = "") -> list[dict]:
-    """Transações por CONTA (a API v2 exige accountId). Pagina via cursor e filtra localmente."""
+    """Transações por CONTA (a API v2 exige accountId).
+
+    A API limita cada resposta a 500 lançamentos (sem cursor): sem filtro de
+    data, o cartão voltava só até mai/26. Quando a janela estoura o teto,
+    caminha para trás com dateFrom/dateTo até esgotar (3 janelas cobriram
+    set/25–set/26 do UV). Idempotente no banco (upsert por pluggy_id).
+    """
+    import datetime as _dt
+    start = from_date or "2020-01-01"
+    end = _dt.date.today().isoformat()
     out: list[dict] = []
-    cursor: str | None = None
-    for _ in range(50):  # teto: 50 páginas (folga p/ uso pessoal)
+    seen: set[str] = set()
+    for _ in range(60):  # teto de janelas (folga p/ anos de histórico)
         res = _http("GET", "/v2/transactions", api_key,
-                    params={"accountId": account_id, "cursor": cursor})
+                    params={"accountId": account_id, "dateFrom": start, "dateTo": end})
         page = res.get("results") or []
-        out.extend(page)
-        cursor = (res.get("page") or {}).get("nextCursor") or res.get("nextCursor")
-        if not cursor or not page:
+        for t in page:
+            if t.get("id") not in seen:
+                seen.add(t.get("id"))
+                out.append(t)
+        if len(page) < 500:
+            break  # janela esgotada: tudo entre start e end já veio
+        mins = sorted((t.get("date") or "")[:10] for t in page if t.get("date"))
+        if not mins or mins[0] >= end:
+            break  # sem progresso
+        end = (_dt.date.fromisoformat(mins[0]) - _dt.timedelta(days=1)).isoformat()
+        if end < start:
             break
     if from_date:
         out = [t for t in out if (t.get("date") or "")[:10] >= from_date]

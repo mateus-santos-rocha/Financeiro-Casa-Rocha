@@ -61,8 +61,7 @@ export async function applyTagBatch(ids: string[], name: string) {
   revalidatePath("/movimentacoes");
 }
 
-export async function createRule(match: string, category: string) {
-  const m = match.trim();
+export async function createRule(match: string, category: string) {  const m = match.trim();
   const c = category.trim();
   if (!m || !c) throw new Error("Descrição e categoria são obrigatórias");
   const sb = supabaseServer();

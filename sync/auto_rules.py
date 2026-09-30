@@ -14,12 +14,20 @@ from __future__ import annotations
 import datetime as dt
 
 
+def _norm(s: str) -> str:
+    """Minúsculas sem acento (Laís == Lais). Usado em todo match de regra."""
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", (s or "").lower())
+        if unicodedata.category(c) != "Mn")
+
+
 def rule_matches(rule: dict, description: str | None, bank: str | None, category: str | None = None) -> bool:
     import re
-    needle = (rule.get("match") or "").strip().lower()
+    needle = _norm((rule.get("match") or "").strip())
     if not needle:
         return False
-    hay = f"{description or ''} {category or ''}".lower()
+    hay = _norm(f"{description or ''} {category or ''}")
     if not re.search(r"\b" + re.escape(needle) + r"\b", hay):
         return False
     rb = (rule.get("bank") or "").strip().lower()
@@ -127,14 +135,292 @@ def apply_rules_to_tx(sb: object, txid: string, desc: str | None, amount: float,
             stats["rules_rolled_total"] = round(stats.get("rules_rolled_total", 0) + amt, 2)
 
 
-def apply_auto_rules(sb: object, days: int | None = 30) -> dict:
-    """Aplica regras à janela (days) ou a tudo (days=None). Retorna stats."""
-    stats: dict = {}
-    rules = sorted(
-        sb.table("auto_rules").select("*").execute().data or [],  # type: ignore
-        key=lambda r: (r.get("priority") or 0))
-    if not rules:
-        return stats
+def find_reversal_pairs(rows: list[dict], debit_match: str = "brasilprev",
+                        credit_match: str = "estorno", window_days: int = 7) -> list[tuple[str, str]]:
+    """Pareia débitos com seus estornos: [(debit_id, credit_id)].
+
+    rows: dicts com id, account_id, date (AAAA-MM-DD), description, amount.
+    Débito = contém debit_match mas não credit_match, valor < 0.
+    Estorno = contém debit_match, valor > 0, e (a) contém credit_match
+    (vale data anterior ou posterior, ex.: lançamento no mesmo dia) ou
+    (b) é posterior ao débito (ex.: "BRASILPREV ... +104,39" dois dias depois
+    do débito, sem a palavra "estorno"). Pareia por (conta, |valor|) em até
+    `window_days` (guloso pelo mais próximo).
+    """
+    import datetime as _dt
+    debits: dict[tuple, list[dict]] = {}
+    credits: dict[tuple, list[dict]] = {}
+    for r in rows:
+        try:
+            amt = float(r.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if amt == 0:
+            continue
+        d = (r.get("description") or "").lower()
+        key = (r.get("account_id"), round(abs(amt), 2))
+        if amt < 0 and debit_match in d and credit_match not in d:
+            debits.setdefault(key, []).append(r)
+        elif amt > 0 and debit_match in d:
+            credits.setdefault(key, []).append({**r, "_explicit": credit_match in d})
+    pairs: list[tuple[str, str]] = []
+    for key, ds in debits.items():
+        cs = sorted(credits.get(key, []), key=lambda r: r.get("date") or "")
+        used = set()
+        for db in sorted(ds, key=lambda r: r.get("date") or ""):
+            try:
+                dd = _dt.date.fromisoformat((db.get("date") or "")[:10])
+            except ValueError:
+                continue
+            best, best_dist = None, None
+            for i, cr in enumerate(cs):
+                if i in used:
+                    continue
+                try:
+                    cd = _dt.date.fromisoformat((cr.get("date") or "")[:10])
+                except ValueError:
+                    continue
+                dist = (cd - dd).days
+                ok = abs(dist) <= window_days and (cr["_explicit"] or 0 < dist <= window_days)
+                if ok and (best_dist is None or abs(dist) < best_dist):
+                    best, best_dist = i, abs(dist)
+            if best is not None:
+                used.add(best)
+                pairs.append((db["id"], cs[best]["id"]))
+    return pairs
+
+
+def find_pix_pairs(rows: list[dict], internal_ids: frozenset | set = frozenset(),
+                    window_days: int = 3) -> list[tuple[str, str]]:
+    """Pareia pix entre contas próprias: [(out_id, in_id)].
+
+    rows: dicts com id, account_id, holder, date (AAAA-MM-DD), description, amount.
+    Lado saída: "transferência enviada pelo pix" genérico (sem nome) OU já
+    marcado como interno E com o primeiro nome do titular na descrição
+    (ex.: "Transferência enviada|Mateus Santos Rocha").
+    Lado entrada: contém "pix" + ("receb" ou "credito"), ex.: "PIX - RECEBIDO
+    ... MATEUS SANT", "TRANSFERÊNCIA A CRÉDITO VIA PIX".
+    Exige mesmo titular, contas diferentes, mesmo |valor|, até `window_days`
+    (guloso pelo mais próximo) + UMA âncora de identidade: nome do titular
+    na entrada, ou saída já marcada como interna. Sem âncora, não pareia
+    (evita marcar pix de/para terceiros, ex. posto x reembolso no mesmo dia).
+    """
+    import datetime as _dt
+    firsts = {"voce": "mateus", "esposa": "lais"}
+    outs: dict[tuple, list[dict]] = {}
+    ins: dict[tuple, list[dict]] = {}
+    for r in rows:
+        try:
+            amt = float(r.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if amt == 0:
+            continue
+        d = _norm(r.get("description") or "")
+        holder = r.get("holder") or ""
+        first = firsts.get(holder, "")
+        key = (holder, round(abs(amt), 2))
+        out_ok = d == "transferencia enviada pelo pix" or (
+            r["id"] in internal_ids and first and first in d)
+        if amt < 0 and out_ok:
+            outs.setdefault(key, []).append(r)
+        elif amt > 0 and "pix" in d and ("receb" in d or "credito" in d):
+            ins.setdefault(key, []).append({**r, "_named": bool(first and first in d)})
+    pairs: list[tuple[str, str]] = []
+    for key, ds in outs.items():
+        cs = sorted(ins.get(key, []), key=lambda r: r.get("date") or "")
+        used = set()
+        for db in sorted(ds, key=lambda r: r.get("date") or ""):
+            try:
+                dd = _dt.date.fromisoformat((db.get("date") or "")[:10])
+            except ValueError:
+                continue
+            best, best_dist = None, None
+            for i, cr in enumerate(cs):
+                if i in used or cr.get("account_id") == db.get("account_id"):
+                    continue
+                try:
+                    cd = _dt.date.fromisoformat((cr.get("date") or "")[:10])
+                except ValueError:
+                    continue
+                dist = abs((cd - dd).days)
+                anchored = cr["_named"] or db["id"] in internal_ids
+                if dist <= window_days and anchored and (best_dist is None or dist < best_dist):
+                    best, best_dist = i, dist
+            if best is not None:
+                used.add(best)
+                pairs.append((db["id"], cs[best]["id"]))
+    return pairs
+
+
+def tag_reversal_pairs(sb: object, days: int | None = 30, stats: dict | None = None) -> int:
+    """Marca pares débito+estorno como transferencia-interna (idempotente).
+
+    Tentativas de débito que falham (ex.: BRASILPREV -100 + ESTORNO +100 no dia
+    seguinte) poluem resgate/aporte com efeito líquido zero. Roda em todo sync
+    via apply_auto_rules e no backfill --all.
+    """
+    import datetime as dt
+    base_q = sb.table("transactions").select("id,account_id,date,description,amount")  # type: ignore
+    if days is not None:
+        since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+        base_q = base_q.gte("date", since)
+    rows: list[dict] = []
+    start = 0
+    while True:
+        page = base_q.range(start, start + 999).execute().data or []
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+        start += 1000
+    pairs = find_reversal_pairs(rows)
+    if not pairs:
+        return 0
+    tid = ensure_tag(sb, "transferencia-interna")
+    txids = sorted({t for p in pairs for t in p})
+    existing: set[str] = set()
+    for i in range(0, len(txids), 500):
+        got = sb.table("transaction_tags").select("transaction_id").eq(  # type: ignore
+            "tag_id", tid).in_("transaction_id", txids[i:i + 500]).execute().data or []
+        existing.update(g["transaction_id"] for g in got)
+    batch = [{"transaction_id": t, "tag_id": tid}
+             for p in pairs for t in p if t not in existing]
+    if batch:
+        sb.table("transaction_tags").upsert(  # type: ignore
+            batch, on_conflict="transaction_id,tag_id").execute()
+    if stats is not None:
+        stats["reversal_tagged"] = stats.get("reversal_tagged", 0) + len(batch)
+    return len(batch)
+
+
+def find_salary_advances(rows: list[dict], base_amount: float = 4200.0,
+                          window_days: int = 35) -> list[str]:
+    """Acha adiantamentos: ids dos créditos que antecedem cada base salarial.
+
+    rows: dicts com id, date (AAAA-MM-DD), description, amount.
+    Estrutura real do contracheque (validada out/25–set/26): base ~= 4200 no
+    meio do mês + adiantamento de 9 a 26 dias antes, com data e valor
+    flutuantes — às vezes ~3,3k puro, às vezes com benefícios juntos
+    (30/10/25, 26/02/26, 29/05/26, confirmados pelo dono). Retorna só os de
+    MÊS ANTERIOR ao base (esses sim precisam da tag `adiantamento` p/ contar
+    na competência certa; os do mesmo mês já estão certos sem tag). Exclui
+    outros base ~= 4200 e mesma data do base. Idempotente por construção.
+    """
+    import datetime as _dt
+    sals = []
+    for r in rows:
+        if "pagamento de salario" not in (r.get("description") or "").lower():
+            continue
+        try:
+            amt = float(r.get("amount") or 0)
+            d = _dt.date.fromisoformat((r.get("date") or "")[:10])
+        except (TypeError, ValueError):
+            continue
+        if amt <= 0:
+            continue
+        sals.append((d, amt, r["id"]))
+    sals.sort()
+    out: list[str] = []
+    for i, (dd, amt, _rid) in enumerate(sals):
+        if abs(amt - base_amount) > 0.01:
+            continue
+        prev = None
+        for d2, v2, id2 in sals[:i]:
+            if d2 >= dd or (dd - d2).days > window_days:
+                continue
+            if abs(v2 - base_amount) <= 0.01:
+                continue
+            prev = (d2, id2)
+        if prev and prev[0].strftime("%Y-%m") != dd.strftime("%Y-%m"):
+            out.append(prev[1])
+    return out
+
+
+def tag_salary_advances(sb: object, days: int | None = 30, stats: dict | None = None) -> int:
+    """Marca adiantamentos com a tag `adiantamento` (idempotente, via upsert).
+
+    Conta na competência do mês do base — mesma mecânica que Análise e
+    Histórico já deslocam. Roda em todo sync e no backfill --all.
+    """
+    import datetime as dt
+    base_q = sb.table("transactions").select("id,date,description,amount")  # type: ignore
+    if days is not None:
+        since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+        base_q = base_q.gte("date", since)
+    rows: list[dict] = []
+    start = 0
+    while True:
+        page = base_q.range(start, start + 999).execute().data or []
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+        start += 1000
+    cands = find_salary_advances(rows)
+    if not cands:
+        return 0
+    tid = ensure_tag(sb, "adiantamento")
+    existing: set[str] = set()
+    for i in range(0, len(cands), 500):
+        got = sb.table("transaction_tags").select("transaction_id").eq(  # type: ignore
+            "tag_id", tid).in_("transaction_id", cands[i:i + 500]).execute().data or []
+        existing.update(g["transaction_id"] for g in got)
+    batch = [{"transaction_id": t, "tag_id": tid} for t in cands if t not in existing]
+    if batch:
+        sb.table("transaction_tags").upsert(  # type: ignore
+            batch, on_conflict="transaction_id,tag_id").execute()
+    if stats is not None:
+        stats["advance_tagged"] = stats.get("advance_tagged", 0) + len(batch)
+    return len(batch)
+
+
+def tag_pix_pairs(sb: object, days: int | None = 30, stats: dict | None = None) -> int:
+    """Marca pares de pix próprio como transferencia-interna (idempotente).
+
+    Roda em todo sync via apply_auto_rules e no backfill --all.
+    """
+    import datetime as dt
+    holds = {a["id"]: (a.get("holder") or "") for a in
+             (sb.table("accounts").select("id,holder").execute().data or [])}  # type: ignore
+    base_q = sb.table("transactions").select("id,account_id,date,description,amount")  # type: ignore
+    if days is not None:
+        since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+        base_q = base_q.gte("date", since)
+    rows: list[dict] = []
+    start = 0
+    while True:
+        page = base_q.range(start, start + 999).execute().data or []
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+        start += 1000
+    for r in rows:
+        r["holder"] = holds.get(r.get("account_id") or "")
+    tid = ensure_tag(sb, "transferencia-interna")
+    win_ids = [r["id"] for r in rows]
+    internal: set[str] = set()
+    for i in range(0, len(win_ids), 500):
+        got = sb.table("transaction_tags").select("transaction_id").eq(  # type: ignore
+            "tag_id", tid).in_("transaction_id", win_ids[i:i + 500]).execute().data or []
+        internal.update(g["transaction_id"] for g in got)
+    pairs = find_pix_pairs(rows, internal_ids=internal)
+    if not pairs:
+        return 0
+    txids = sorted({t for p in pairs for t in p})
+    existing: set[str] = set()
+    for i in range(0, len(txids), 500):
+        got = sb.table("transaction_tags").select("transaction_id").eq(  # type: ignore
+            "tag_id", tid).in_("transaction_id", txids[i:i + 500]).execute().data or []
+        existing.update(g["transaction_id"] for g in got)
+    batch = [{"transaction_id": t, "tag_id": tid}
+             for p in pairs for t in p if t not in existing]
+    if batch:
+        sb.table("transaction_tags").upsert(  # type: ignore
+            batch, on_conflict="transaction_id,tag_id").execute()
+    if stats is not None:
+        stats["pix_tagged"] = stats.get("pix_tagged", 0) + len(batch)
+    return len(batch)
+
+
 def apply_auto_rules(sb: object, days: int | None = 30) -> dict:
     """Aplica regras à janela (days) ou a tudo (days=None). Retorna stats."""
     stats: dict = {}
@@ -248,6 +534,9 @@ def apply_auto_rules(sb: object, days: int | None = 30) -> dict:
         stats["rules_rolled"] = stats.get("rules_rolled", 0) + len(info["txs"])
         stats["rules_rolled_total"] = round(stats.get("rules_rolled_total", 0) + info["amt"], 2)
     reprice_crypto(sb, stats)
+    tag_reversal_pairs(sb, days=days, stats=stats)
+    tag_salary_advances(sb, days=days, stats=stats)
+    tag_pix_pairs(sb, days=days, stats=stats)
     return stats
 
 

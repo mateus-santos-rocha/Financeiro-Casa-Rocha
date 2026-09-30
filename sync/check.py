@@ -80,8 +80,10 @@ def check_migrations(sb: object) -> None:
         ("0009 merged_into removida", not has_col("investments", "merged_into")),
         ("0010 tag adiantamento", has_tag("adiantamento")),
         ("0011 tag btc", has_tag("btc")),
-        ("0018 casal (mateus+ludmila)", has_rule("mateus santos rocha") and has_rule("lais coutinho de souza rocha")),
+        ("0018 casal (mateus; lais -> 0020)", has_rule("mateus santos rocha")),
         ("0019 salario (pediatherapies)", has_tag("salario") and has_rule("pediatherapies")),
+        ("0020 lais sem DE", has_rule("lais coutinho")),
+        ("0021 salario (rocha solucoes)", has_rule("rocha solucoes")),
     ]
     missing = [name for name, ok in checks if not ok]
     for name, ok in checks:

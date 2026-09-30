@@ -1,4 +1,4 @@
-from auto_rules import compute_roll, rule_matches
+from auto_rules import compute_roll, find_pix_pairs, find_reversal_pairs, find_salary_advances, rule_matches
 from normalize import inv_indexer, inv_issuer, inv_maturity, inv_rate
 
 
@@ -36,10 +36,89 @@ def test_transfer_casal_e_propria():
     assert not rule_matches(recebida, "PAGAMENTO DE SALARIO", "bv")
 
 
+def test_match_sem_acento():
+    # Laís (com acento) casa com a regra sem acento; parentes Coutinho, não.
+    r = {"match": "lais coutinho", "bank": None, "action": "tag"}
+    assert rule_matches(r, "Transferência enviada|Laís Coutinho de Souza", "nubank")
+    assert rule_matches(r, "Transferência enviada|LAIS COUTINHO DE SOUZA ROCHA", "nubank")
+    assert not rule_matches(r, "Transferência Recebida|Marilia Coutinho de Souza Rachel", "nubank")
+    assert not rule_matches(r, "Transferência Recebida|Prescila Coutinho Pereira de Souza", "nubank")
+
+
 def test_salario_lais():
     r = {"match": "pediatherapies", "bank": None, "action": "tag"}
     assert rule_matches(r, "Transferência Recebida|Pediatherapies Clinica De Fisioterapia E Reabil", "nubank")
     assert not rule_matches(r, "PAGAMENTO DE SALARIO", "bv")
+    rocha = {"match": "rocha solucoes", "bank": None, "action": "tag"}
+    assert rule_matches(rocha, "Transferência Recebida|ROCHA SOLUCOES", "nubank")
+    assert rule_matches(rocha, "Transferência Recebida|ROCHA SOLUCOES LTDA", "nubank")
+
+
+def test_reversal_pairs():
+    rows = [
+        {"id": "d1", "account_id": "a", "date": "2026-05-09", "description": "BRASILPREV SEG", "amount": -100},
+        {"id": "c1", "account_id": "a", "date": "2026-05-09", "description": "ESTORNO DEBITO BRASILPREV SEG", "amount": 100},
+        {"id": "d2", "account_id": "a", "date": "2026-05-20", "description": "BRASILPREV SEG", "amount": -100},
+        {"id": "d3", "account_id": "a", "date": "2026-06-01", "description": "BRASILPREV SEG", "amount": -100},  # sem par (>7d)
+        {"id": "x1", "account_id": "a", "date": "2026-05-10", "description": "Compra mercado", "amount": -100},
+        {"id": "d4", "account_id": "b", "date": "2026-05-09", "description": "BRASILPREV SEG", "amount": -100},  # outra conta
+    ]
+    pairs = find_reversal_pairs(rows)
+    assert ("d1", "c1") in pairs
+    assert len(pairs) == 1
+
+
+def test_reversal_implicit_credit():
+    # estorno sem a palavra "estorno": só vale se posterior ao débito
+    rows = [
+        {"id": "d", "account_id": "a", "date": "2026-09-09", "description": "BRASILPREV SEG", "amount": -104.39},
+        {"id": "c", "account_id": "a", "date": "2026-09-11", "description": "BRASILPREV 27.665 SEG", "amount": 104.39},
+        {"id": "d2", "account_id": "a", "date": "2026-09-11", "description": "BRASILPREV SEG", "amount": -104.39},
+        {"id": "c2", "account_id": "a", "date": "2026-09-09", "description": "BRASILPREV 27.665 SEG", "amount": 104.39},
+    ]
+    pairs = find_reversal_pairs(rows)
+    assert ("d", "c") in pairs  # crédito 2 dias depois casa
+    assert len(pairs) == 1  # crédito anterior ao débito não casa
+
+
+def test_salary_advance_pairing():
+    sal = "PAGAMENTO DE SALARIO"
+    rows = [
+        {"id": "adv-jul", "date": "2026-06-30", "description": sal, "amount": 3382.79},
+        {"id": "base-jul", "date": "2026-07-26", "description": sal, "amount": 4200.0},
+        {"id": "adv-abr", "date": "2026-04-03", "description": sal, "amount": 3279.43},  # mesmo mês: fica
+        {"id": "base-abr", "date": "2026-04-22", "description": sal, "amount": 4200.0},
+        {"id": "adv-jun", "date": "2026-05-29", "description": sal, "amount": 8558.23},  # adianto + benefícios
+        {"id": "base-jun", "date": "2026-06-21", "description": sal, "amount": 4200.0},
+        {"id": "adv-mar", "date": "2026-02-26", "description": sal, "amount": 12599.50},  # adianto + benefícios
+        {"id": "base-mar", "date": "2026-03-23", "description": sal, "amount": 4200.0},
+    ]
+    assert find_salary_advances(rows) == ["adv-mar", "adv-jun", "adv-jul"]
+
+
+def test_pix_pairs():
+    out_gen = {"id": "o1", "account_id": "nb", "holder": "voce", "date": "2026-01-09",
+               "description": "Transferência enviada pelo Pix", "amount": -2888.42}
+    in_self = {"id": "i1", "account_id": "bb", "holder": "voce", "date": "2026-01-09",
+               "description": "PIX - RECEBIDO 09/01 15:15 00039343041845 MATEUS SANT", "amount": 2888.42}
+    out_named = {"id": "o2", "account_id": "nb", "holder": "voce", "date": "2026-07-27",
+                 "description": "Transferência enviada|Mateus Santos Rocha", "amount": -1000.0}
+    in_cred = {"id": "i2", "account_id": "btg", "holder": "voce", "date": "2026-07-30",
+               "description": "TRANSFERÊNCIA A CRÉDITO VIA PIX", "amount": 2000.0}
+    out_named2 = {"id": "o3", "account_id": "nb", "holder": "voce", "date": "2026-07-30",
+                  "description": "Transferência enviada|Mateus Santos Rocha", "amount": -2000.0}
+    merch = {"id": "m1", "account_id": "nb", "holder": "voce", "date": "2026-09-02",
+             "description": "Transferência enviada pelo Pix", "amount": -4.18}
+    fuel = {"id": "f1", "account_id": "nb", "holder": "voce", "date": "2026-04-24",
+            "description": "Ec Shellbox", "amount": -253.55}
+    fuel_in = {"id": "f2", "account_id": "nb2", "holder": "esposa", "date": "2026-04-24",
+               "description": "Transferência Recebida|Auto Posto", "amount": 253.55}
+    rows = [out_gen, in_self, out_named, in_cred, out_named2, merch, fuel, fuel_in]
+    internal = {"o2", "o3"}  # saídas nomeadas já marcadas
+    pairs = find_pix_pairs(rows, internal_ids=internal)
+    assert ("o1", "i1") in pairs  # genérico + recebido com nome
+    assert ("o3", "i2") in pairs  # crédito sem nome, saída interna ancora
+    assert len(pairs) == 2  # comerciante e posto x reembolso ficam de fora
 
 
 def test_compute_roll():

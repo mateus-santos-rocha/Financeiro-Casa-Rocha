@@ -16,7 +16,9 @@ const INVEST_RE =
   /resgat|aplic|cdb|rdb|lci|lca|lft|tesouro|fundo|cota|brasilprev|previd|investimento|investments|fixed income|mutual funds|pension|dividend|jcp|rendimento/i;
 
 export function hayOf(t: TxLike): string {
-  return `${t.description ?? ""} ${t.category_pluggy ?? ""}`;
+  // Minúsculas sem acento (Laís == Lais), igual às regras do sync.
+  const raw = `${t.description ?? ""} ${t.category_pluggy ?? ""}`.toLowerCase();
+  return raw.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "");
 }
 
 /** Entrada (amount >= 0). isTransfer/isSalario = tags da transação. */
