@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { fetchAll } from "@/lib/fetch-all";
 import { familyOf, fmtBRL, fmtDate, translateInvType } from "@/lib/format";
 import { getCdiMensal } from "@/lib/cdi";
 import { setInvestmentClosed } from "@/lib/actions";
@@ -98,11 +99,13 @@ export default async function InvestimentosPage() {
       : s;
 
   const outIds = new Set(active.filter((r) => isReserva(r) || isParking(r)).map((r) => r.id));
-  const { data: snaps } = await sb
-    .from("investment_snapshots")
-    .select("date,value,investment_id")
-    .order("date", { ascending: true })
-    .limit(20000);
+  // fetchAll: snapshots crescem todo dia; o PostgREST corta em 1000 linhas por resposta.
+  const snaps = await fetchAll<{ date: string; value: number | null; investment_id: string }>(() =>
+    sb
+      .from("investment_snapshots")
+      .select("date,value,investment_id")
+      .order("date", { ascending: true }),
+  );
   const perDay = new Map<string, number>();
   for (const s of (snaps ?? []) as { date: string; value: number | null; investment_id: string }[]) {
     if (outIds.has(s.investment_id)) continue;

@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { fetchAll } from "@/lib/fetch-all";
 import { displayCategory, fmtBRL } from "@/lib/format";
 import { AutoForm } from "@/components/AutoForm";
 import { Charts } from "@/components/Charts";
@@ -48,8 +49,10 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
   const end = new Date(y, m, 0).toISOString().slice(0, 10);
 
   const sel = "amount,description,merchant,date,category_pluggy,category_override,accounts(holder),transaction_tags(tags(name))";
-  const { data } = await sb.from("transactions").select(sel).gte("date", startPrev2).lte("date", end).limit(8000);
-  const all = (data ?? []) as unknown as Tx[];
+  // fetchAll: o PostgREST corta em 1000 linhas por resposta.
+  const all = await fetchAll<Tx>(() =>
+    sb.from("transactions").select(sel).gte("date", startPrev2).lte("date", end),
+  );
 
   const comTransf = searchParams.comTransf === "1";
   // BTC (cashback convertido) vive nos investimentos — fora da análise

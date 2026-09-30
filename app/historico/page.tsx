@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { fetchAll } from "@/lib/fetch-all";
 import { fmtBRL } from "@/lib/format";
 import { AutoForm } from "@/components/AutoForm";
 import { HistoryChart } from "@/components/HistoryChart";
@@ -8,16 +9,18 @@ export default async function HistoricoPage({ searchParams }: { searchParams: { 
   const n = Math.min(Number(searchParams.meses ?? 12) || 12, 36);
   const comTransf = searchParams.comTransf === "1";
 
-  const { data } = await sb
-    .from("transactions")
-    .select("date,amount,transaction_tags(tags(name))")
-    .order("date", { ascending: true })
-    .limit(20000);
-
   type HTx = {
     date: string; amount: number | null;
     transaction_tags: { tags: { name: string } | null }[];
   };
+  // fetchAll: o PostgREST corta em 1000 linhas; sem paginar, os meses novos somem.
+  const data = await fetchAll<HTx>(() =>
+    sb
+      .from("transactions")
+      .select("date,amount,transaction_tags(tags(name))")
+      .order("date", { ascending: true }),
+  );
+
   const hasTag = (t: HTx, name: string) => t.transaction_tags.some((x) => x.tags?.name === name);
   const own = new Map<string, { rec: number; des: number }>();
   const adv = new Map<string, { rec: number; des: number }>();
