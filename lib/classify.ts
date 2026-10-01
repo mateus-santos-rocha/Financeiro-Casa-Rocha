@@ -18,7 +18,7 @@ const INVEST_RE =
 export function hayOf(t: TxLike): string {
   // Minúsculas sem acento (Laís == Lais), igual às regras do sync.
   const raw = `${t.description ?? ""} ${t.category_pluggy ?? ""}`.toLowerCase();
-  return raw.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "");
+  return raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 /** Entrada (amount >= 0). isTransfer/isSalario = tags da transação. */

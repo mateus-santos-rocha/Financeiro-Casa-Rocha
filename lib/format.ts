@@ -19,6 +19,11 @@ export const fmtDate = (iso: string | null | undefined) => {
 export const monthKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
+/** Valida ?mes=AAAA-MM; cai para o fallback em URL artesanal (evita 500). */
+export function validMonth(raw: string | undefined, fallback: string): string {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(raw ?? "") ? (raw as string) : fallback;
+}
+
 /** De-para: categorias do Open Finance/Pluggy (EN) → pt-BR. Override do usuário prevalece. */
 const CAT_PTBR: Record<string, string> = {
   transfers: "Transferências",
@@ -81,6 +86,28 @@ const CAT_PTBR: Record<string, string> = {
   taxi_and_ride_hailing: "Transporte por app",
   parking: "Estacionamento",
   pension: "Previdência",
+  cashback: "Cashback",
+  variable_income: "Renda variável",
+  wellness_and_fitness: "Bem-estar e fitness",
+  electronics: "Eletrônicos",
+  electricity: "Energia elétrica",
+  tax_on_financial_operations: "IOF",
+  hospital_clinics_and_labs: "Clínicas e laboratórios",
+  cinema_theater_and_concerts: "Cinema e shows",
+  video_streaming: "Streaming de vídeo",
+  internet: "Internet",
+  gambling: "Jogos e apostas",
+  mutual_funds: "Fundos",
+  tolls_and_in_vehicle_payment: "Pedágios",
+  tickets: "Ingressos",
+  transfer_pix: "Transferência via Pix",
+  houseware: "Utilidades domésticas",
+  vehicle_maintenance: "Manutenção do carro",
+  public_transportation: "Transporte público",
+  online_shopping: "Compras online",
+  office_supplies: "Material de escritório",
+  fixed_income: "Renda fixa",
+  gaming: "Jogos",
   others: "Outros",
   other: "Outros",
   uncategorized: "Sem categoria",
@@ -88,7 +115,7 @@ const CAT_PTBR: Record<string, string> = {
 
 export const translateCategory = (c: string | null | undefined) => {
   if (!c) return "Sem categoria";
-  const hit = CAT_PTBR[c.trim().toLowerCase().replace(/[\s-]+/g, "_")];
+  const hit = CAT_PTBR[c.trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/,/g, "")];
   return hit ?? c;
 };
 
@@ -97,6 +124,9 @@ export const displayCategory = (t: { category_override: string | null; category_
 
 export type Holder = "voce" | "esposa";
 export const holderLabel: Record<Holder, string> = { voce: "Mateus", esposa: "Laís" };
+
+/** Paleta dos donuts (server-safe: importar daqui, nunca de client module). */
+export const PALETTE = ["#0ea5e9", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#14b8a6", "#f97316", "#64748b"];
 
 /** Família do título p/ consolidação: Tesouro Direto junta as variações de nome. */
 export function familyOf(name: string | null): string {

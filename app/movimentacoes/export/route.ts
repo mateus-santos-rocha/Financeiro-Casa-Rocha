@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { displayCategory, holderLabel } from "@/lib/format";
+import { displayCategory, holderLabel, validMonth } from "@/lib/format";
 
 function csvCell(v: string | number | null | undefined): string {
   const s = String(v ?? "");
@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   if (!user) return new Response("Não autenticado", { status: 401 });
 
   const url = new URL(req.url);
-  const mes = url.searchParams.get("mes") ?? new Date().toISOString().slice(0, 7);
+  const mes = validMonth(url.searchParams.get("mes") ?? undefined, new Date().toISOString().slice(0, 7));
   const q = url.searchParams.get("q") ?? "";
   const titular = url.searchParams.get("titular") ?? "";
   const showBtc = url.searchParams.get("showBtc") === "1";

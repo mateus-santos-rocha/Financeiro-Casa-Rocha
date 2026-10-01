@@ -10,8 +10,14 @@ export function supabaseServer() {
   return createServerClient(url, key, {
     cookies: {
       getAll: () => cookieStore.getAll(),
+      // Render de Server Component não pode gravar cookies (o middleware
+      // abaixo já renova a sessão). Ignora o erro nesse contexto.
       setAll: (toSet: { name: string; value: string; options?: Record<string, unknown> }[]) => {
-        toSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options as never));
+        try {
+          toSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options as never));
+        } catch {
+          /* Server Component: middleware cuida do refresh */
+        }
       },
     },
   });

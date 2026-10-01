@@ -1,9 +1,7 @@
 "use client";
 
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { fmtBRL, fmtBRLCompact } from "@/lib/format";
-
-export const PALETTE = ["#0ea5e9", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#14b8a6", "#f97316", "#64748b"];
+import { fmtBRL, fmtBRLCompact, PALETTE } from "@/lib/format";
 
 export type DonutSlice = { name: string; value: number };
 
@@ -26,13 +24,13 @@ export function Donut({
   return (
     <div className="relative w-full" style={{ height }}>
       <ResponsiveContainer>
-        <PieChart margin={{ top: 8, bottom: 8 }}>
+        <PieChart margin={{ top: 20, right: 16, bottom: 4, left: 16 }}>
           <Pie
             data={data}
             dataKey="value"
             nameKey="name"
-            innerRadius="62%"
-            outerRadius="88%"
+            innerRadius="60%"
+            outerRadius="72%"
             paddingAngle={2}
             cornerRadius={4}
             stroke="#ffffff"
@@ -40,7 +38,7 @@ export function Donut({
             labelLine={false}
             label={(p: { percent?: number }) => {
               const pct = (p.percent ?? 0) * 100;
-              return pct < 5 ? "" : `${pct.toFixed(0)}%`;
+              return pct < 6 ? "" : `${pct.toFixed(0)}%`;
             }}
           >
             {data.map((_, i) => (
@@ -51,7 +49,7 @@ export function Donut({
             formatter={(v: number) => fmtBRL(v)}
             contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 13 }}
           />
-          <Legend verticalAlign="bottom" height={40} wrapperStyle={{ fontSize: 12 }} formatter={short} />
+          <Legend verticalAlign="bottom" height={44} wrapperStyle={{ fontSize: 12, lineHeight: "18px" }} formatter={short} />
         </PieChart>
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-10">

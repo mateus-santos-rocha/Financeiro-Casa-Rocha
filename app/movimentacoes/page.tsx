@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { displayCategory, fmtBRL } from "@/lib/format";
+import { displayCategory, fmtBRL, validMonth } from "@/lib/format";
 import { AutoForm } from "@/components/AutoForm";
 import { MovTable, type MovRow } from "@/components/MovTable";
 
@@ -9,10 +9,10 @@ type SortKey = (typeof SORTS)[number];
 export default async function MovimentacoesPage({
   searchParams,
 }: {
-  searchParams: { mes?: string; q?: string; titular?: string; showBtc?: string; tag?: string; cat?: string; sort?: string; dir?: string };
+  searchParams: { mes?: string; q?: string; showBtc?: string; tag?: string; cat?: string; sort?: string; dir?: string };
 }) {
   const sb = supabaseServer();
-  const mes = searchParams.mes ?? new Date().toISOString().slice(0, 7);
+  const mes = validMonth(searchParams.mes, new Date().toISOString().slice(0, 7));
   const [y, m] = mes.split("-").map(Number);
   const start = `${mes}-01`;
   const end = new Date(y, m, 0).toISOString().slice(0, 10);
@@ -25,9 +25,6 @@ export default async function MovimentacoesPage({
     .order("date", { ascending: false })
     .limit(500);
 
-  if (searchParams.titular === "voce" || searchParams.titular === "esposa") {
-    query = query.eq("accounts.holder", searchParams.titular);
-  }
   if (searchParams.q) {
     query = query.ilike("description", `%${searchParams.q}%`);
   }
@@ -90,7 +87,6 @@ export default async function MovimentacoesPage({
   const qs = new URLSearchParams({
     ...(searchParams.mes ? { mes: searchParams.mes } : {}),
     ...(searchParams.q ? { q: searchParams.q } : {}),
-    ...(searchParams.titular ? { titular: searchParams.titular } : {}),
     ...(tagFilter ? { tag: tagFilter } : {}),
     ...(catFilter ? { cat: catFilter } : {}),
     ...(showBtc ? { showBtc: "1" } : {}),
@@ -104,24 +100,12 @@ export default async function MovimentacoesPage({
         <span className={`badge ${total >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
           Saldo do filtro: {fmtBRL(total)}
         </span>
-        <span className="ml-auto flex gap-2">
-          <a className="btn-ghost" href={`/movimentacoes/export?${qs}`}>Exportar CSV</a>
-          <a className="btn-ghost" href="/movimentacoes/import">Importar CSV</a>
-        </span>
       </div>
 
       <AutoForm className="card flex flex-wrap gap-3">
         <div>
           <label className="label" htmlFor="mes">Mês</label>
           <input id="mes" name="mes" type="month" defaultValue={mes} className="input" />
-        </div>
-        <div>
-          <label className="label" htmlFor="titular">Titular</label>
-          <select id="titular" name="titular" defaultValue={searchParams.titular ?? ""} className="input">
-            <option value="">Todos</option>
-            <option value="voce">Mateus</option>
-            <option value="esposa">Laís</option>
-          </select>
         </div>
         <div>
           <label className="label" htmlFor="tag">Tag</label>

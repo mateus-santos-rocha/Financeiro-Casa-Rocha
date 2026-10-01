@@ -135,13 +135,13 @@ Evolução ao longo do tempo. Linha mensal: receitas vs despesas vs saldo + acum
   3. Normalizar → upsert Supabase (`service_role`) → gravar snapshots → gravar `sync_runs`.
   4. Respeitar rate limit (429 → backoff; `PATCH /items` no máximo manual — usar auto-sync do Pluggy).
 - **Agendamento configurável:** `sync/schedule.yml` com `cron: "0 11 * * *"` + `timezone: America/Sao_Paulo`. Trocar o cron = trocar a linha (documentado no README). Sem rebuild do app.
-- **Re-auth MFA (Nubank/BB/BTG pedem de tempos em tempos):** status `LOGIN_ERROR/MFA` aparece na página Config (`/config` mostra `sync_runs` + status por conexão). Revalidação = abrir Meu Pluggy ou widget Pluggy Connect e reconectar; nenhum segredo bancário fica no nosso banco (só tokens do Pluggy).
+- **Re-auth MFA (Nubank/BB/BTG pedem de tempos em tempos):** sintoma = sync passa a trazer 0 items/transações. Revalidação = abrir Meu Pluggy ou widget Pluggy Connect e reconectar; nenhum segredo bancário fica no nosso banco (só tokens do Pluggy).
 - **Botão manual:** Edge Function `supabase/functions/trigger-sync` chama `workflow_dispatch` via GitHub API (token escopo `actions:write` em secret da function). Alternativa sem function: link direto para a Actions.
 
 ## 7. Auth do casal + acesso simultâneo
 
 - Supabase Auth (email+senha ou magic link), 2 usuários no mesmo projeto. RLS como na seção 4.
-- Frontend Next.js App Router + `@supabase/ssr`, middleware protege `/movimentacoes|/analise|/historico|/investimentos|/config`.
+- Frontend Next.js App Router + `@supabase/ssr`, middleware protege `/movimentacoes|/analise|/historico|/investimentos`.
 - PWA (`manifest` + instalação na home do celular). Sem build mobile nativo — custo zero.
 - Observação Supabase Free: limite 500 MB banco, 5 GB egress, 50k MAU — folga enorme para 2 usuários. Pausa por inatividade resolvida pelo cron diário.
 
@@ -157,7 +157,7 @@ Evolução ao longo do tempo. Linha mensal: receitas vs despesas vs saldo + acum
 │  ├─ analise/page.tsx
 │  ├─ historico/page.tsx
 │  ├─ investimentos/page.tsx
-│  └─ config/page.tsx         # status sync, conexões, schedule visível
+│  └─ (sem config; status do sync vai na faixa do topo via SyncBadge)
 ├─ components/                # tabelas, filtros, gráficos (recharts ou tremor)
 ├─ lib/                       # supabase client, formatação BRL, categorias
 ├─ supabase/
@@ -176,12 +176,12 @@ Evolução ao longo do tempo. Linha mensal: receitas vs despesas vs saldo + acum
 
 - [x] **Fase 0 — Validação gratuita (antes de codar).** Criar conta Meu Pluggy e conectar as fontes (feito 25/09/2026: BTG+BB+Nubank conectados após resolver loop do Nubank). Falta: criar demo app no dashboard, testar `POST /auth` + `GET /accounts|/transactions|/investments` via curl. Critério: dados reais retornam e a chave sobrevive >24h sem cobrança. Se falhar → confirmar Fallback A/B e seguir com CSV primeiro.
 - [x] **Fase 1 — Fundação.** Repo + Next.js + Supabase projeto + `supabase/migrations` (schema+RLS+seed) + login do casal + layout + PWA. Critério: os 2 logins veem shell vazio protegido.
-- [x] **Fase 2 — Sync.** `sync/pluggy.py` + `normalize.py` + `sync.yml` (cron diário) + `sync_runs` visível em `/config`. Validado 25/09/2026: 2 runs seguidos idempotentes (6 accounts, 169 transactions, 36 investments, 36 snapshots; sem duplicar). App demo sem permissão de listar items → usa `PLUGGY_ITEM_IDS_1/BANKS_1` explícitos + `sync/check.py` p/ diagnóstico. Critério: 2 runs diários seguidos com upsert sem duplicar + snapshots criados.
+- [x] **Fase 2 — Sync.** `sync/pluggy.py` + `normalize.py` + `sync.yml` (cron diário) + `sync_runs` visível na faixa do topo. Validado 25/09/2026: 2 runs seguidos idempotentes (6 accounts, 169 transactions, 36 investments, 36 snapshots; sem duplicar). App demo sem permissão de listar items → usa `PLUGGY_ITEM_IDS_1/BANKS_1` explícitos + `sync/check.py` p/ diagnóstico. Critério: 2 runs diários seguidos com upsert sem duplicar + snapshots criados.
 - [x] **Automação diária.** Repo privado + 6 secrets + workflow `sync-diario` verde em 25/09/2026 (cron 08h BRT + manual).
 - [x] **Fase 3 — Movimentações.** Tabela+filtros+override de categoria+tags+regras+import CSV. Validada pelo dono em 25/09/2026 (4/4 testes: busca, categoria+tag, lote, CSV). Critério: achar qualquer lançamento em <3 cliques e retaggear em lote.
 - [x] **Fase 4 — Análise + Histórico.** Seletor de mês, pizza/barras, MoM, merchants, por titular, evolução mensal (sem acumulado — removido a pedido do dono; transferências internas excluídas via tag). Critério: fechar o mês atual e um mês passado batendo com o extrato do banco.
 - [x] **Fase 5 — Investimentos.** Consolidado, RF detalhada (com edição manual de taxa/vencimento), snapshots/performance, tag `reserva-emergencia` (benchmark CDI via BCB ficou p/ Fase 6). Validada pelo dono em 25/09/2026 (após corrigir mapeamento preço-unitário→total, bank via item, dust <R$1, encerrar manual, base manual, consolidado por família expansível; vínculo de transferência removido e reserva excluída do patrimônio a pedido do dono). Critério: cada título RF exibe aplicado x atual x rentabilidade + evolução patrimonial desenha.
-- [x] **Fase 6 — Polimento.** Botão "sincronizar agora" em `/config` (link p/ Actions via `NEXT_PUBLIC_GITHUB_REPO`), guia MFA/reconnect, export CSV, testes de normalização, benchmark CDI via BCB (SGS 4391), lançamento manual (BTC), README final.
+- [x] **Fase 6 — Polimento.** Botão "↻ Atualizar" no topo (link p/ Actions via `NEXT_PUBLIC_GITHUB_REPO`), guia MFA/reconnect, export CSV, testes de normalização, benchmark CDI via BCB (SGS 4391), lançamento manual (BTC), README final.
 
 ## 10. Convenções para agents (quem for executar)
 

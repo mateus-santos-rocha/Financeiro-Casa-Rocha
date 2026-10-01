@@ -24,12 +24,10 @@ export function HistoryChart({ rows, hideInvest = false }: { rows: MonthRow[]; h
             <Tooltip formatter={(v: number) => fmtBRL(v)} />
             <Legend />
             <Bar dataKey="salario" name={INCOME_META.salario.label} stackId="rec" fill={INCOME_META.salario.color} />
-            <Bar dataKey="transfIn" name="Transferências" stackId="rec" fill={INCOME_META.transferencia.color} />
             {!hideInvest && <Bar dataKey="resgate" name={INCOME_META.resgate.label} stackId="rec" fill={INCOME_META.resgate.color} />}
             <Bar dataKey="outrasRec" name="Outras receitas" stackId="rec" fill={INCOME_META.outras.color} />
             <Bar dataKey="despesa" name={EXPENSE_META.despesa.label} stackId="des" fill={EXPENSE_META.despesa.color} />
             {!hideInvest && <Bar dataKey="aporte" name={EXPENSE_META.aporte.label} stackId="des" fill={EXPENSE_META.aporte.color} />}
-            <Bar dataKey="transfOut" name="Transferências (saída)" stackId="des" fill={EXPENSE_META.transferencia.color} />
             <Line type="monotone" dataKey="saldo" name="Saldo" stroke="#0f172a" strokeWidth={2} dot={false} />
           </ComposedChart>
         </ResponsiveContainer>

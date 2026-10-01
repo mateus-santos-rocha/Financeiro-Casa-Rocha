@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { Donut, PALETTE } from "@/components/Donut";
+import { Donut } from "@/components/Donut";
+import { PALETTE } from "@/lib/format";
 
 export type CatRow = { categoria: string; total: number };
 

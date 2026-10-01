@@ -54,6 +54,28 @@ def test_salario_lais():
     assert rule_matches(rocha, "Transferência Recebida|ROCHA SOLUCOES LTDA", "nubank")
 
 
+def test_feminae_conforto():
+    r = {"match": "feminae", "bank": None, "action": "tag"}
+    assert rule_matches(r, "Transferência enviada|FEMINAE - ASSISTENCIA MEDICA S/S.", "nubank")
+    assert rule_matches(r, "Jim.Com* Feminae Ass", "nubank")
+
+
+def test_grupos_pessoais():
+    b = {"match": "bianca de souza oros ferreira", "bank": None, "action": "tag"}
+    assert rule_matches(b, "Transferência enviada|BIANCA DE SOUZA OROS FERREIRA", "nubank")
+    c = {"match": "claudia regina martins de oliveira", "bank": None, "action": "tag"}
+    assert rule_matches(c, "Transferência enviada|Claudia Regina Martins de Oliveira", "nubank")
+    d = {"match": "cdb", "bank": None, "action": "tag"}
+    assert rule_matches(d, "CDB 120 CDI", "bv")
+    assert rule_matches(d, "COMPRA - CDB LECCA CREDITO", "btg")
+    assert not rule_matches(d, "PAGAMENTO DE SALARIO", "bv")
+
+
+def test_personal_conforto():
+    r = {"match": "guilherme roberto oliveira", "bank": None, "action": "tag"}
+    assert rule_matches(r, "Transferência enviada|GUILHERME ROBERTO OLIVEIRA ESTAVA", "nubank")
+
+
 def test_reversal_pairs():
     rows = [
         {"id": "d1", "account_id": "a", "date": "2026-05-09", "description": "BRASILPREV SEG", "amount": -100},

@@ -84,6 +84,9 @@ def check_migrations(sb: object) -> None:
         ("0019 salario (pediatherapies)", has_tag("salario") and has_rule("pediatherapies")),
         ("0020 lais sem DE", has_rule("lais coutinho")),
         ("0021 salario (rocha solucoes)", has_rule("rocha solucoes")),
+        ("0023 feminae (conforto)", has_rule("feminae")),
+        ("0024 pessoais (bianca/claudia/cdb)", has_rule("bianca de souza oros ferreira") and has_rule("cdb")),
+        ("0025 personal (guilherme)", has_rule("guilherme roberto oliveira")),
     ]
     missing = [name for name, ok in checks if not ok]
     for name, ok in checks:

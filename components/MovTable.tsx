@@ -197,7 +197,7 @@ export function MovTable({ rows, suggestions, sort, dir, baseQs, allTags }: {
             })}
             {rows.length === 0 && (
               <tr><td colSpan={8} className="px-3 py-8 text-center text-slate-500">
-                Nenhum lançamento. Rode o sync (ver /config) ou importe um CSV.
+                Nenhum lançamento. Rode o sync (↻ Atualizar no topo).
               </td></tr>
             )}
           </tbody>

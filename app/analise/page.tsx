@@ -1,7 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchAll } from "@/lib/fetch-all";
 import { INCOME_META, incomeKind } from "@/lib/classify";
-import { displayCategory, fmtBRL, holderLabel } from "@/lib/format";
+import { displayCategory, fmtBRL, PALETTE, validMonth } from "@/lib/format";
 import { AutoForm } from "@/components/AutoForm";
 import { Charts } from "@/components/Charts";
 import { Donut } from "@/components/Donut";
@@ -39,9 +39,9 @@ function shiftMonth(d: Date, n: number): string {
   return `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export default async function AnalisePage({ searchParams }: { searchParams: { mes?: string; comTransf?: string } }) {
+export default async function AnalisePage({ searchParams }: { searchParams: { mes?: string } }) {
   const sb = supabaseServer();
-  const mes = searchParams.mes ?? new Date().toISOString().slice(0, 7);
+  const mes = validMonth(searchParams.mes, new Date().toISOString().slice(0, 7));
   const [y, m] = mes.split("-").map(Number);
   const base = new Date(y, m - 1, 1);
   const mPrev = shiftMonth(base, -1);
@@ -55,10 +55,10 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
     sb.from("transactions").select(sel).gte("date", startPrev2).lte("date", end),
   );
 
-  const comTransf = searchParams.comTransf === "1";
   // BTC (cashback convertido) vive nos investimentos — fora da análise
   const inMonth = (k: string) => all.filter((t) => t.date.slice(0, 7) === k && !hasTag(t, "btc"));
-  const noTransf = (rows: Tx[]) => (comTransf ? rows : rows.filter((t) => !hasTag(t, TRANSF)));
+  // Transferências internas nunca entram (sem opt-in).
+  const noTransf = (rows: Tx[]) => rows.filter((t) => !hasTag(t, TRANSF));
 
   // mês atual: próprio (sem adiantamento — vai p/ o próximo) + adiantamento do mês anterior
   const own = noTransf(inMonth(mes)).filter((t) => !hasTag(t, ADIANT));
@@ -89,31 +89,6 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
   )
     .map(([categoria, v]) => ({ categoria, total: v.total, count: v.count }))
     .sort((a, b) => b.total - a.total);
-  const totDes = porCategoria.reduce((a, c) => a + c.total, 0);
-
-  const merchants = Object.entries(
-    rows
-      .filter((t) => Number(t.amount ?? 0) < 0)
-      .reduce<Record<string, number>>((acc, t) => {
-        const k = (t.merchant || t.description || "—").slice(0, 60);
-        acc[k] = (acc[k] ?? 0) + Math.abs(Number(t.amount ?? 0));
-        return acc;
-      }, {})
-  )
-    .map(([name, total]) => ({ name, total }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10);
-
-  const groupSum = (list: Tx[]) =>
-    Object.entries(
-      list.reduce<Record<string, number>>((acc, t) => {
-        const c = displayCategory(t);
-        acc[c] = (acc[c] ?? 0) + Math.abs(Number(t.amount ?? 0));
-        return acc;
-      }, {})
-    )
-      .map(([categoria, total]) => ({ categoria, total }))
-      .sort((a, b) => b.total - a.total);
 
   const recRows = rows.filter((t) => Number(t.amount ?? 0) > 0);
   // Natureza da entrada (cores fixas por natureza — filtra zeradas sem desalinhar).
@@ -126,30 +101,13 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
   })).filter((s) => s.value > 0);
   const natIn = natFull.map(({ name, value }) => ({ name, value }));
   const natColors = natFull.map((s) => s.color);
-  const recCat = groupSum(recRows).slice(0, 7);
-  const recCatResto = groupSum(recRows).slice(7).reduce((a, c) => a + c.total, 0);
-  const recPie = recCatResto > 0 ? [...recCat, { categoria: "Outras", total: recCatResto }] : recCat;
-  const recTop = Object.entries(
-    recRows.reduce<Record<string, number>>((acc, t) => {
-      const k = (t.merchant || t.description || "—").slice(0, 60);
-      acc[k] = (acc[k] ?? 0) + Number(t.amount ?? 0);
-      return acc;
-    }, {})
-  )
-    .map(([name, total]) => ({ name, total }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10);
-
-  const porTitular = (["voce", "esposa"] as const).map((h) => {
-    const s = summarize(rows.filter((t) => (t.accounts?.holder ?? "voce") === h));
-    return { holder: holderLabel[h], ...s };
-  });
-
-  const top = porCategoria[0];
 
   // Transferências detalhadas por nome (aluguel, dízimo, condomínio... em vez do lump genérico)
   const GROUPS = ["custo-fixo", "conforto", "prazeres", "liberdade-financeira", "metas"];
-  const groupOf = (t: Tx) => GROUPS.find((g) => hasTag(t, g)) ?? "sem-grupo";
+  // Desempate: conforto antes de custo-fixo (ex.: saúde particular como Feminae
+  // carrega as duas tags; a escolha particular prevalece). Ordem de exibição inalterada.
+  const TIEBREAK = ["conforto", "custo-fixo", "prazeres", "liberdade-financeira", "metas"];
+  const groupOf = (t: Tx) => TIEBREAK.find((g) => hasTag(t, g)) ?? "sem-grupo";
   const transfDetail = Object.entries(
     rows
       .filter((t) => Number(t.amount ?? 0) < 0 && displayCategory(t) === "Transferências")
@@ -173,21 +131,38 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
   });
   const totGrupo = porGrupo.reduce((a, g) => a + g.total, 0);
 
+  // Compras parceladas do mês (metadados do conector: cada parcela no seu mês).
+  type ParcRow = {
+    date: string; description: string | null; amount: number | null;
+    raw: { creditCardMetadata?: { installmentNumber?: number; totalInstallments?: number } } | null;
+  };
+  const { data: parcRows } = await sb.from("transactions")
+    .select("date,description,amount,raw")
+    .gte("date", `${mes}-01`)
+    .lte("date", end)
+    .order("date", { ascending: false })
+    .limit(1000);
+  const parc = (((parcRows ?? []) as unknown) as ParcRow[])
+    .map((t) => ({
+      date: t.date,
+      description: t.description,
+      amount: Number(t.amount ?? 0),
+      n: t.raw?.creditCardMetadata?.installmentNumber ?? null,
+      m: t.raw?.creditCardMetadata?.totalInstallments ?? null,
+    }))
+    .filter((t) => t.amount < 0 && t.n !== null && t.m !== null);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <h1 className="text-2xl font-bold tracking-tight">Análise</h1>
         <AutoForm className="flex flex-wrap items-center gap-2">
           <input name="mes" type="month" defaultValue={mes} className="input" aria-label="Mês" />
-          <label className="flex items-center gap-1 text-sm text-slate-600">
-            <input type="checkbox" name="comTransf" value="1" defaultChecked={searchParams.comTransf === "1"} />
-            incluir transferências
-          </label>
         </AutoForm>
         <span className="text-sm text-slate-500">vs {mPrev}</span>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <div className="card">
           <p className="text-xs uppercase text-slate-500">Receitas</p>
           <p className="text-xl font-bold text-emerald-700">{fmtBRL(receitas)}</p>
@@ -205,16 +180,27 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
           <p className="text-xs text-slate-500">mês anterior: {fmtBRL(p.saldo)}</p>
           {advOut > 0 && <p className="text-xs text-amber-700">adiantamento deste mês vai p/ o próximo: {fmtBRL(advOut)}</p>}
         </div>
-        <div className="card">
-          <p className="text-xs uppercase text-slate-500">Top categoria</p>
-          <p className="text-xl font-bold">{top ? `${top.categoria} (${fmtBRL(top.total)})` : "—"}</p>
-        </div>
       </div>
 
       <Charts porCategoria={porCategoria} receitas={receitas} despesas={despesas} />
 
-      <div className="card overflow-x-auto p-0">
-        <h2 className="p-4 pb-0 font-semibold">Por grupo do orçamento</h2>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="card">
+          <h2 className="font-semibold">Despesas por grupo</h2>
+          <Donut
+            data={porGrupo.filter((g) => g.total > 0).map((g) => ({ name: g.grupo, value: g.total }))}
+            colors={PALETTE}
+            height={300}
+          />
+        </div>
+        <div className="card">
+          <h2 className="font-semibold">Entradas por natureza</h2>
+          <Donut data={natIn} colors={natColors} height={300} />
+        </div>
+      </div>
+
+      <details className="card overflow-x-auto p-0">
+        <summary className="cursor-pointer p-4 font-semibold hover:text-slate-900">Despesas por grupo do orçamento</summary>
         <p className="px-4 text-sm text-slate-500">Tags aplicadas automaticamente (editáveis por lançamento). “Sem grupo” = falta classificar.</p>
         <table className="table">
           <thead><tr><th>Grupo</th><th className="text-right">Itens</th><th className="text-right">Total</th><th className="text-right">% das despesas</th></tr></thead>
@@ -229,54 +215,10 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
             ))}
           </tbody>
         </table>
-      </div>
+      </details>
 
-      <div className="card overflow-x-auto p-0">
-        <h2 className="p-4 pb-0 font-semibold">Todas as categorias de despesa</h2>
-        <p className="px-4 text-sm text-slate-500">O “Outras” do gráfico é a soma das categorias fora do top 7 — detalhadas aqui.</p>
-        <table className="table">
-          <thead><tr><th>Categoria</th><th className="text-right">Itens</th><th className="text-right">Total</th><th className="text-right">% das despesas</th></tr></thead>
-          <tbody>
-            {porCategoria.map((c) => (
-              <tr key={c.categoria}>
-                <td>{c.categoria}</td>
-                <td className="text-right">{c.count}</td>
-                <td className="text-right">{fmtBRL(c.total)}</td>
-                <td className="text-right">{totDes > 0 ? `${((c.total / totDes) * 100).toFixed(1)}%` : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="card">
-          <h2 className="font-semibold">Receitas por categoria</h2>
-          <Donut data={recPie.map((c) => ({ name: c.categoria, value: c.total }))} height={300} />
-        </div>
-        <div className="card">
-          <h2 className="font-semibold">Entradas por natureza</h2>
-          <Donut data={natIn} colors={natColors} height={300} />
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="card">
-          <h2 className="font-semibold">Top 10 origens (receitas)</h2>
-          <table className="table mt-2">
-            <thead><tr><th>Quem</th><th className="text-right">Total</th></tr></thead>
-            <tbody>
-              {recTop.map((x) => (
-                <tr key={x.name}><td>{x.name}</td><td className="text-right text-emerald-700">{fmtBRL(x.total)}</td></tr>
-              ))}
-              {recTop.length === 0 && <tr><td colSpan={2} className="py-4 text-center text-slate-500">Sem receitas no mês.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="card overflow-x-auto p-0">
-        <h2 className="p-4 pb-0 font-semibold">Transferências detalhadas</h2>
+      <details className="card overflow-x-auto p-0">
+        <summary className="cursor-pointer p-4 font-semibold hover:text-slate-900">Transferências detalhadas</summary>
         <p className="px-4 text-sm text-slate-500">As conhecidas (aluguel, dízimo, condomínio…) aparecem pelo nome e grupo.</p>
         <table className="table">
           <thead><tr><th>Quem</th><th>Grupo</th><th className="text-right">Itens</th><th className="text-right">Total</th></tr></thead>
@@ -292,38 +234,27 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
             {transfDetail.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-slate-500">Sem transferências no mês.</td></tr>}
           </tbody>
         </table>
-      </div>
+      </details>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="card">
-          <h2 className="font-semibold">Por titular</h2>
-          <table className="table mt-2">
-            <thead><tr><th>Titular</th><th className="text-right">Receitas</th><th className="text-right">Despesas</th><th className="text-right">Saldo</th></tr></thead>
-            <tbody>
-              {porTitular.map((t) => (
-                <tr key={t.holder}>
-                  <td>{t.holder}</td>
-                  <td className="text-right text-emerald-700">{fmtBRL(t.rec)}</td>
-                  <td className="text-right text-red-700">{fmtBRL(Math.abs(t.des))}</td>
-                  <td className="text-right font-medium">{fmtBRL(t.saldo)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="card">
-          <h2 className="font-semibold">Top 10 merchants (despesas)</h2>
-          <table className="table mt-2">
-            <thead><tr><th>Quem</th><th className="text-right">Total</th></tr></thead>
-            <tbody>
-              {merchants.map((x) => (
-                <tr key={x.name}><td>{x.name}</td><td className="text-right">{fmtBRL(x.total)}</td></tr>
-              ))}
-              {merchants.length === 0 && <tr><td colSpan={2} className="py-4 text-center text-slate-500">Sem despesas no mês.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <details className="card overflow-x-auto p-0">
+        <summary className="cursor-pointer p-4 font-semibold hover:text-slate-900">Compras parceladas</summary>
+        <p className="px-4 text-sm text-slate-500">Parcelas que caem neste mês (dados do conector). O total é aproximado (parcela × Nº de vezes).</p>
+        <table className="table">
+          <thead><tr><th>Data</th><th>Compra</th><th className="text-right">Parcela</th><th className="text-right">Valor</th><th className="text-right">Total aprox.</th></tr></thead>
+          <tbody>
+            {parc.map((p, i) => (
+              <tr key={`${p.date}-${p.description}-${i}`}>
+                <td className="whitespace-nowrap">{p.date.slice(0, 10)}</td>
+                <td>{p.description ?? "—"}</td>
+                <td className="text-right whitespace-nowrap">{p.n}/{p.m}</td>
+                <td className="text-right text-red-700">{fmtBRL(Math.abs(p.amount))}</td>
+                <td className="text-right">{fmtBRL(Math.abs(p.amount) * (p.m ?? 1))}</td>
+              </tr>
+            ))}
+            {parc.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-slate-500">Sem parcelas neste mês.</td></tr>}
+          </tbody>
+        </table>
+      </details>
     </div>
   );
 }
