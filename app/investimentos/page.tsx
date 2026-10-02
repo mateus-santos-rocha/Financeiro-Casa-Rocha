@@ -102,28 +102,76 @@ export default async function InvestimentosPage() {
 
   const outIds = new Set(active.filter((r) => isReserva(r) || isParking(r)).map((r) => r.id));
   // fetchAll: snapshots crescem todo dia; o PostgREST corta em 1000 linhas por resposta.
-  const snaps = await fetchAll<{ date: string; value: number | null; investment_id: string }>(() =>
+  const snaps = await fetchAll<{ date: string; value: number | null; invested: number | null; investment_id: string }>(() =>
     sb
       .from("investment_snapshots")
-      .select("date,value,investment_id")
+      .select("date,value,invested,investment_id")
       .order("date", { ascending: true }),
   );
-  const perDay = new Map<string, number>();
-  for (const s of (snaps ?? []) as { date: string; value: number | null; investment_id: string }[]) {
+  // Atributo de cada posição p/ fatiar a evolução (mesmas regras das pizzas).
+  const attrMap = new Map(rows.map((r) => [r.id, {
+    tipo: translateInvType(r.type),
+    titulo: familyOf(r.name),
+    indexador: r.type === "crypto" ? "Cripto" : (r.indexer ?? "").trim().toUpperCase() || "Não informado",
+    emissor: r.type === "crypto" ? "Bitcoin" : (r.issuer ?? "").trim() || "Não informado",
+  }]));
+  const attrOf = (id: string) => attrMap.get(id) ?? { tipo: "Outros", titulo: "Outros", indexador: "Outros", emissor: "Outros" };
+  type Dim = "tipo" | "titulo" | "indexador" | "emissor";
+  const perDay = new Map<string, { v: number; i: number }>();
+  const dimMaps: Record<Dim, Map<string, Map<string, number>>> = {
+    tipo: new Map(), titulo: new Map(), indexador: new Map(), emissor: new Map(),
+  };
+  for (const s of (snaps ?? []) as { date: string; value: number | null; invested: number | null; investment_id: string }[]) {
     if (outIds.has(s.investment_id)) continue;
-    perDay.set(s.date, (perDay.get(s.date) ?? 0) + Number(s.value ?? 0));
+    const cur = perDay.get(s.date) ?? { v: 0, i: 0 };
+    cur.v += Number(s.value ?? 0);
+    cur.i += Number(s.invested ?? 0);
+    perDay.set(s.date, cur);
+    const a = attrOf(s.investment_id);
+    for (const d of Object.keys(dimMaps) as Dim[]) {
+      let km = dimMaps[d].get(s.date);
+      if (!km) { km = new Map(); dimMaps[d].set(s.date, km); }
+      km.set(a[d], (km.get(a[d]) ?? 0) + Number(s.value ?? 0));
+    }
   }
   const evolution = [...perDay.entries()]
     .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([date, total]) => ({ date: date.slice(5), total }));
+    .map(([date, t]) => ({ date: date.slice(5), total: Number(t.v.toFixed(2)), invested: Number(t.i.toFixed(2)) }));
+  // Séries por dimensão (top 7 + Outras, como as pizzas).
+  function dimSeries(m: Map<string, Map<string, number>>) {
+    const totals = new Map<string, number>();
+    for (const [, km] of m) for (const [k, v] of km) totals.set(k, (totals.get(k) ?? 0) + v);
+    const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+    const capped = ranked.length > 8;
+    const keep = new Set(ranked.slice(0, 7).map(([k]) => k));
+    const rows = [...m.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, km]) => {
+        const row: Record<string, number | string> = { date: date.slice(5) };
+        let outras = 0;
+        for (const [k, v] of km) {
+          if (!capped || keep.has(k)) row[k] = Number((((row[k] as number) ?? 0) + v).toFixed(2));
+          else outras += v;
+        }
+        if (capped) row["Outras"] = Number(outras.toFixed(2));
+        return row;
+      });
+    return { keys: capped ? [...keep, "Outras"] : ranked.map(([k]) => k), rows };
+  }
+  const evolutionBy = {
+    tipo: dimSeries(dimMaps.tipo),
+    titulo: dimSeries(dimMaps.titulo),
+    indexador: dimSeries(dimMaps.indexador),
+    emissor: dimSeries(dimMaps.emissor),
+  };
 
   // Benchmark: CDI mensal (BCB) x variação da carteira no mês (quando há snapshots)
   const cdi = await getCdiMensal(6);
   const byMonthSnap = new Map<string, number[]>();
-  for (const [date, total] of perDay) {
+  for (const [date, t] of perDay) {
     const k = date.slice(0, 7);
     const list = byMonthSnap.get(k) ?? [];
-    list.push(total);
+    list.push(t.v);
     byMonthSnap.set(k, list);
   }
   const bench = cdi.map((c) => {
@@ -153,7 +201,7 @@ export default async function InvestimentosPage() {
         <div className="card border-emerald-200"><p className="text-xs uppercase text-emerald-700">Reserva de emergência</p><p className="text-2xl font-bold text-emerald-800">{fmtBRL(reserva)}</p></div>
       </div>
 
-      <InvestCharts evolution={evolution} byType={cap(byType)} byTitle={cap(byTitle)} byIndexer={cap(byIndexer)} byIssuer={cap(byIssuer)} />
+      <InvestCharts evolution={evolution} evolutionBy={evolutionBy} byType={cap(byType)} byTitle={cap(byTitle)} byIndexer={cap(byIndexer)} byIssuer={cap(byIssuer)} />
 
       <div className="card overflow-x-auto p-0">
         <h2 className="p-4 pb-0 font-semibold">Benchmark — carteira x CDI (a.m.)</h2>

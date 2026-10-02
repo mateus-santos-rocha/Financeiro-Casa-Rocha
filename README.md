@@ -15,7 +15,7 @@ npm run dev                  # http://localhost:3000/login
 ## Banco (Supabase)
 1. Crie o projeto free no Supabase.
 2. Crie 2 usuários em Auth (você + esposa).
-3. Rode as migrations em ordem no SQL Editor: `supabase/migrations/0001_schema.sql` … `0008_manual_invest.sql`.
+3. Rode as migrations em ordem no SQL Editor: `supabase/migrations/0001_schema.sql` … `0026_manual_snapshots.sql` (a 0026 libera o snapshot do dia ao editar posição manual).
 4. Confira a seed `reserva-emergencia` em `tags`.
 
 ## Sync automático

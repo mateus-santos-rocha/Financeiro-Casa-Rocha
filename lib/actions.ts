@@ -71,6 +71,28 @@ export async function createRule(match: string, category: string) {  const m = m
 }
 
 // ---------- investimentos ----------
+async function writeTodaySnapshot(sb: ReturnType<typeof supabaseServer>, id: string) {
+  // Evolução inclui a posição a partir de hoje (passado intacto).
+  // Exige a migration 0026_manual_snapshots.sql aplicada.
+  const { data: row } = await sb
+    .from("investments")
+    .select("current_value,amount_invested,invested_override")
+    .eq("id", id)
+    .maybeSingle();
+  const r = row as { current_value: number | null; amount_invested: number | null; invested_override: number | null } | null;
+  if (!r) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await sb.from("investment_snapshots").upsert(
+    {
+      investment_id: id,
+      date: today,
+      value: r.current_value,
+      invested: r.invested_override ?? r.amount_invested,
+    },
+    { onConflict: "investment_id,date" }
+  );
+  if (error) throw new Error(`Salvo, mas sem snapshot do dia (${error.message}). Rode a migration 0026.`);
+}
 export async function updateInvestment(
   id: string,
   fields: { issuer?: string; indexer?: string; rate?: string; maturity_date?: string; invested_override?: string; held_since?: string; current_value?: string; amount_invested?: string }
@@ -119,6 +141,7 @@ export async function updateInvestment(
   }
   const { error } = await sb.from("investments").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
+  await writeTodaySnapshot(sb, id);
   revalidatePath("/investimentos");
 }
 
@@ -168,7 +191,7 @@ export async function addManualInvestment(_prev: unknown, formData: FormData) {
   const sb = supabaseServer();
   const key = createHash("sha256").update(`${name}|${type}|${Date.now()}`).digest("hex").slice(0, 16);
   const now = new Date().toISOString();
-  const { error } = await sb.from("investments").insert({
+  const { data: inserted, error } = await sb.from("investments").insert({
     pluggy_id: `manual:${key}`,
     name,
     type,
@@ -176,8 +199,13 @@ export async function addManualInvestment(_prev: unknown, formData: FormData) {
     current_value: current,
     currency: "BRL",
     last_seen_at: now,
-  });
+  }).select("id").single();
   if (error) return { ok: false, message: error.message };
+  try {
+    await writeTodaySnapshot(sb, (inserted as { id: string }).id);
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Erro no snapshot" };
+  }
   revalidatePath("/investimentos");
   return { ok: true, message: `“${name}” adicionado.` };
 }
