@@ -33,7 +33,12 @@ export default async function MovimentacoesPage({
     query,
     sb.from("tags").select("name").order("name"),
   ]);
-  const allTags = ((tagRows ?? []) as { name: string }[]).map((t) => t.name);
+  const allTags = [...new Set([
+    // Tags do sistema (sempre sugeridas, mesmo sem uso no mês)
+    "transferencia-interna", "salario", "adiantamento", "btc",
+    "custo-fixo", "conforto", "prazeres", "liberdade-financeira", "metas",
+    ...((tagRows ?? []) as { name: string }[]).map((t) => t.name),
+  ])].sort((a, b) => a.localeCompare(b, "pt-BR"));
 
   // BTC (cashback convertido) vive nos investimentos — oculto por padrão
   const showBtc = searchParams.showBtc === "1";

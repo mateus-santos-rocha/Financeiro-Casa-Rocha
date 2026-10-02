@@ -70,20 +70,22 @@ export function MovTable({ rows, suggestions, sort, dir, baseQs, allTags }: {
     <div className="space-y-3">
       {error && <p role="alert" className="card border-red-200 text-sm text-red-700">{error}</p>}
 
+      {/* Lista única de sugestões (batch + por linha referenciam este id). */}
+      <datalist id="tx-tag-suggestions">
+        {allTags.map((t) => <option key={t} value={t} />)}
+      </datalist>
+
       {selected.size > 0 && (
         <div className="card flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{selected.size} selecionado(s)</span>
           <input
             className="input max-w-52"
-            list="tag-suggestions"
+            list="tx-tag-suggestions"
             placeholder="tag p/ aplicar em lote"
             value={batchTag}
             onChange={(e) => setBatchTag(e.target.value)}
             aria-label="Tag para aplicar em lote"
           />
-          <datalist id="tag-suggestions">
-            {allTags.map((t) => <option key={t} value={t} />)}
-          </datalist>
           <button
             className="btn-primary"
             disabled={pending || !batchTag.trim()}
@@ -164,7 +166,7 @@ export function MovTable({ rows, suggestions, sort, dir, baseQs, allTags }: {
                         <span className="flex gap-1">
                           <input
                             className="input min-w-28"
-                            list="tag-suggestions"
+                            list="tx-tag-suggestions"
                             placeholder="nova tag"
                             value={tagValue}
                             onChange={(e) => setTagValue(e.target.value)}

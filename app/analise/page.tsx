@@ -186,16 +186,16 @@ export default async function AnalisePage({ searchParams }: { searchParams: { me
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card">
+          <h2 className="font-semibold">Entradas por natureza</h2>
+          <Donut data={natIn} colors={natColors} height={300} />
+        </div>
+        <div className="card">
           <h2 className="font-semibold">Despesas por grupo</h2>
           <Donut
             data={porGrupo.filter((g) => g.total > 0).map((g) => ({ name: g.grupo, value: g.total }))}
             colors={PALETTE}
             height={300}
           />
-        </div>
-        <div className="card">
-          <h2 className="font-semibold">Entradas por natureza</h2>
-          <Donut data={natIn} colors={natColors} height={300} />
         </div>
       </div>
 
