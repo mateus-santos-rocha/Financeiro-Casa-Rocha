@@ -39,8 +39,10 @@ export default async function InvestimentosPage() {
   const isReserva = (r: Row) => r.investment_tags.some((x) => x.tags?.name === RESERVA);
   const isParking = (r: Row) => r.investment_tags.some((x) => x.tags?.name === PARKING);
   const cutoff = Date.now() - STALE_DAYS * 24 * 3600 * 1000;
-  const isStale = (r: Row) => !r.last_seen_at || new Date(r.last_seen_at).getTime() < cutoff;
   const isManual = (r: Row) => (r.pluggy_id ?? "").startsWith("manual:");
+  // Posição manual é mantida à mão (o alerta mensal cobra o valor atual) —
+  // o sync nunca a "vê", então ela jamais pode cair em stale/encerrada sozinha.
+  const isStale = (r: Row) => !isManual(r) && (!r.last_seen_at || new Date(r.last_seen_at).getTime() < cutoff);
   const isClosed = (r: Row) =>
     r.closed_manual === true ||
     (!isManual(r) && !isStale(r) && Number(r.current_value ?? 0) < DUST_LIMIT);
