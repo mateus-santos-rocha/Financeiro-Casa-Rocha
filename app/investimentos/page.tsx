@@ -1,10 +1,11 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchAll } from "@/lib/fetch-all";
 import { familyOf, fmtBRL, fmtDate, translateInvType } from "@/lib/format";
-import { getCdiMensal } from "@/lib/cdi";
+import { getBenchmarks } from "@/lib/cdi";
 import { setInvestmentClosed } from "@/lib/actions";
 import { InvestCharts } from "@/components/InvestCharts";
 import { InvestTable, type InvRow } from "@/components/InvestTable";
+import { ManualInvestForm } from "@/components/ManualInvestForm";
 
 const STALE_DAYS = 3;
 const DUST_LIMIT = 1.0; // resíduo menor que R$ 1 conta como encerrada
@@ -165,21 +166,25 @@ export default async function InvestimentosPage() {
     emissor: dimSeries(dimMaps.emissor),
   };
 
-  // Benchmark: CDI mensal (BCB) x variação da carteira no mês (quando há snapshots)
-  const cdi = await getCdiMensal(6);
-  const byMonthSnap = new Map<string, number[]>();
+  // Benchmark: índices (BCB/Stooq) x rendimento da carteira no mês.
+  // Carteira = só valorização: Δpatrimônio − Δaplicado, sobre o patrimônio inicial.
+  const cdi = await getBenchmarks(6);
+  const byMonthSnap = new Map<string, { v: number; i: number }[]>();
   for (const [date, t] of perDay) {
     const k = date.slice(0, 7);
     const list = byMonthSnap.get(k) ?? [];
-    list.push(t.v);
+    list.push({ v: t.v, i: t.i });
     byMonthSnap.set(k, list);
   }
   const bench = cdi.map((c) => {
     const [mm, yyyy] = c.mes.split("/");
     const vals = byMonthSnap.get(`${yyyy}-${mm}`) ?? [];
-    const first = vals[0];
-    const last = vals[vals.length - 1];
-    const cart = vals.length > 1 && first > 0 ? ((last - first) / first) * 100 : null;
+    let cart: number | null = null;
+    if (vals.length > 1 && vals[0].v > 0) {
+      const first = vals[0];
+      const last = vals[vals.length - 1];
+      cart = (((last.v - first.v) - (last.i - first.i)) / first.v) * 100;
+    }
     return { ...c, cart };
   });
 
@@ -204,22 +209,30 @@ export default async function InvestimentosPage() {
       <InvestCharts evolution={evolution} evolutionBy={evolutionBy} byType={cap(byType)} byTitle={cap(byTitle)} byIndexer={cap(byIndexer)} byIssuer={cap(byIssuer)} />
 
       <div className="card overflow-x-auto p-0">
-        <h2 className="p-4 pb-0 font-semibold">Benchmark — carteira x CDI (a.m.)</h2>
-        <p className="px-4 text-sm text-slate-500">CDI via BCB (grátis, sem chave). A coluna carteira aparece quando há 2+ snapshots no mês.</p>
+        <h2 className="p-4 pb-0 font-semibold">Benchmark — carteira x índices (a.m.)</h2>
+        <p className="px-4 text-sm text-slate-500">CDI e Ibovespa via BCB; S&P 500 via Stooq (em USD, sem câmbio). Carteira = só rendimento, sem aportes. A coluna carteira aparece quando há 2+ snapshots no mês.</p>
         <table className="table">
-          <thead><tr><th>Mês</th><th className="text-right">CDI</th><th className="text-right">Carteira</th></tr></thead>
+          <thead><tr><th>Mês</th><th className="text-right">CDI</th><th className="text-right">Ibovespa</th><th className="text-right">S&P 500</th><th className="text-right">Carteira</th></tr></thead>
           <tbody>
             {bench.map((b) => (
               <tr key={b.mes}>
                 <td>{b.mes}</td>
-                <td className="text-right">{b.cdi.toFixed(2)}%</td>
+                <td className="text-right">{b.cdi === null ? "—" : `${b.cdi.toFixed(2)}%`}</td>
+                <td className="text-right">{b.ibov === null ? "—" : `${b.ibov >= 0 ? "+" : ""}${b.ibov.toFixed(2)}%`}</td>
+                <td className="text-right">{b.sp500 === null ? "—" : `${b.sp500 >= 0 ? "+" : ""}${b.sp500.toFixed(2)}%`}</td>
                 <td className="text-right">{b.cart === null ? "—" : `${b.cart >= 0 ? "+" : ""}${b.cart.toFixed(2)}%`}</td>
               </tr>
             ))}
-            {bench.length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-center text-slate-500">CDI indisponível no momento.</td></tr>}
+            {bench.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">Índices indisponíveis no momento.</td></tr>}
           </tbody>
         </table>
       </div>
+
+      <details className="card">
+        <summary className="cursor-pointer font-semibold hover:text-slate-900">Adicionar posição manual</summary>
+        <p className="text-sm text-slate-500">Para o que o Pluggy não enxerga (ex.: previdência da esposa). Vale a partir de hoje na evolução; atualize o valor todo mês.</p>
+        <ManualInvestForm />
+      </details>
 
       <div className="card">
         <h2 className="font-semibold">Títulos e lotes</h2>
