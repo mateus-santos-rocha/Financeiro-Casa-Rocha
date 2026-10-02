@@ -106,16 +106,16 @@ def test_reversal_implicit_credit():
 def test_salary_advance_pairing():
     sal = "PAGAMENTO DE SALARIO"
     rows = [
-        {"id": "adv-jul", "date": "2026-06-30", "description": sal, "amount": 3382.79},
-        {"id": "base-jul", "date": "2026-07-26", "description": sal, "amount": 4200.0},
-        {"id": "adv-abr", "date": "2026-04-03", "description": sal, "amount": 3279.43},  # mesmo mês: fica
-        {"id": "base-abr", "date": "2026-04-22", "description": sal, "amount": 4200.0},
-        {"id": "adv-jun", "date": "2026-05-29", "description": sal, "amount": 8558.23},  # adianto + benefícios
-        {"id": "base-jun", "date": "2026-06-21", "description": sal, "amount": 4200.0},
-        {"id": "adv-mar", "date": "2026-02-26", "description": sal, "amount": 12599.50},  # adianto + benefícios
-        {"id": "base-mar", "date": "2026-03-23", "description": sal, "amount": 4200.0},
+        {"id": "adv-jul", "date": "2026-06-30", "description": sal, "amount": 3382.79, "holder": "voce"},
+        {"id": "base-jul", "date": "2026-06-21", "description": sal, "amount": 4200.0, "holder": "voce"},
+        {"id": "mesmo-mes", "date": "2026-04-03", "description": sal, "amount": 3279.43, "holder": "voce"},
+        {"id": "dela", "date": "2026-09-04", "description": "Pediatherapies", "amount": 7255.88, "holder": "esposa"},
+        {"id": "plr", "date": "2026-10-10", "description": sal, "amount": 12313.54, "holder": "voce"},
     ]
-    assert find_salary_advances(rows) == ["adv-mar", "adv-jun", "adv-jul"]
+    got = find_salary_advances(rows)
+    assert set(got) == {"adv-jul", "base-jul", "mesmo-mes"}  # tudo dele desloca...
+    assert "dela" not in got  # ...menos o dela...
+    assert "plr" not in got  # ...e menos o restante+PLR (competência outubro)
 
 
 def test_pix_pairs():

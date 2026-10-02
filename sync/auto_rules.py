@@ -295,55 +295,47 @@ def tag_reversal_pairs(sb: object, days: int | None = 30, stats: dict | None = N
 
 def find_salary_advances(rows: list[dict], base_amount: float = 4200.0,
                           window_days: int = 35) -> list[str]:
-    """Acha adiantamentos: ids dos créditos que antecedem cada base salarial.
+    """Acha os créditos-salário dele que contam no mês seguinte (tag `adiantamento`).
 
-    rows: dicts com id, date (AAAA-MM-DD), description, amount.
-    Estrutura real do contracheque (validada out/25–set/26): base ~= 4200 no
-    meio do mês + adiantamento de 9 a 26 dias antes, com data e valor
-    flutuantes — às vezes ~3,3k puro, às vezes com benefícios juntos
-    (30/10/25, 26/02/26, 29/05/26, confirmados pelo dono). Retorna só os de
-    MÊS ANTERIOR ao base (esses sim precisam da tag `adiantamento` p/ contar
-    na competência certa; os do mesmo mês já estão certos sem tag). Exclui
-    outros base ~= 4200 e mesma data do base. Idempotente por construção.
+    rows: dicts com id, date (AAAA-MM-DD), description, amount, holder.
+    Regra global (confirmada pelo dono out/26): o salário dele cai sempre no
+    mês anterior ao da competência — adiantamento no meio do mês + restante
+    no último dia útil. Logo TODO `PAGAMENTO DE SALARIO` com holder=voce
+    leva a tag (Análise/Histórico deslocam +1 mês). Exceção: o restante+PLR
+    de 10/10/26 (R$ 12.313,54), escriturado com data de outubro mas recebido
+    em 30/09 — conta em outubro (sem tag). base_amount/window_days mantidos
+    por compatibilidade (ignorados). Idempotente por construção.
     """
-    import datetime as _dt
-    sals = []
+    out: list[str] = []
     for r in rows:
         if "pagamento de salario" not in (r.get("description") or "").lower():
             continue
+        if (r.get("holder") or "") != "voce":
+            continue
         try:
             amt = float(r.get("amount") or 0)
-            d = _dt.date.fromisoformat((r.get("date") or "")[:10])
+            d = (r.get("date") or "")[:10]
         except (TypeError, ValueError):
             continue
         if amt <= 0:
             continue
-        sals.append((d, amt, r["id"]))
-    sals.sort()
-    out: list[str] = []
-    for i, (dd, amt, _rid) in enumerate(sals):
-        if abs(amt - base_amount) > 0.01:
-            continue
-        prev = None
-        for d2, v2, id2 in sals[:i]:
-            if d2 >= dd or (dd - d2).days > window_days:
-                continue
-            if abs(v2 - base_amount) <= 0.01:
-                continue
-            prev = (d2, id2)
-        if prev and prev[0].strftime("%Y-%m") != dd.strftime("%Y-%m"):
-            out.append(prev[1])
+        if d == "2026-10-10" and abs(amt - 12313.54) < 0.01:
+            continue  # restante+PLR: competência outubro, sem deslocar
+        out.append(r["id"])
     return out
 
 
 def tag_salary_advances(sb: object, days: int | None = 30, stats: dict | None = None) -> int:
-    """Marca adiantamentos com a tag `adiantamento` (idempotente, via upsert).
+    """Marca o salário dele com a tag `adiantamento` (idempotente, via upsert).
 
-    Conta na competência do mês do base — mesma mecânica que Análise e
-    Histórico já deslocam. Roda em todo sync e no backfill --all.
+    Conta na competência do mês seguinte — mesma mecânica que Análise e
+    Histórico já deslocam. Precisa do holder: busca account_id junto.
+    Roda em todo sync e no backfill --all.
     """
     import datetime as dt
-    base_q = sb.table("transactions").select("id,date,description,amount")  # type: ignore
+    holds = {a["id"]: (a.get("holder") or "") for a in
+             (sb.table("accounts").select("id,holder").execute().data or [])}  # type: ignore
+    base_q = sb.table("transactions").select("id,account_id,date,description,amount")  # type: ignore
     if days is not None:
         since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
         base_q = base_q.gte("date", since)
@@ -355,6 +347,8 @@ def tag_salary_advances(sb: object, days: int | None = 30, stats: dict | None = 
         if len(page) < 1000:
             break
         start += 1000
+    for r in rows:
+        r["holder"] = holds.get(r.get("account_id") or "")
     cands = find_salary_advances(rows)
     if not cands:
         return 0
