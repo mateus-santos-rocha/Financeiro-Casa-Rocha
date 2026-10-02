@@ -20,7 +20,9 @@ npm run dev                  # http://localhost:3000/login
 
 ## Sync automático
 - `sync/schedule.yml` guarda o cron editável (`0 11 * * *` = 08h BRT).
-- `.github/workflows/sync.yml` roda 1x/dia + manual (`workflow_dispatch`, ou botão "↻ Atualizar" no topo com `NEXT_PUBLIC_GITHUB_REPO`). Último sync visível na faixa do topo.
+- `.github/workflows/sync.yml` roda 1x/dia + manual (`workflow_dispatch`). Último sync visível na faixa do topo.
+- Botão "↻ Atualizar" no topo = 1 clique: `POST /api/sync` (só logado) dispara o `workflow_dispatch` e acompanha via `sync_runs` (polling 15s, ~2–5 min). Sem `GITHUB_TOKEN`, mostra link fallback p/ Actions.
+  - Server-only na Vercel (e `.env.local`): `GITHUB_TOKEN` (fine-grained PAT, repo + Actions: write), `GITHUB_REPO=owner/repo`. Opcionais: `GITHUB_WORKFLOW` (default `sync.yml`), `GITHUB_REF` (default `main`). `NEXT_PUBLIC_GITHUB_REPO` segue só como fallback do link.
 - Config local: copie `sync/.env.example` → `sync/.env` (nunca commitado) e rode `python sync/pluggy.py`.
 - Janela padrão: últimos 30 dias. Carga histórica: `PLUGGY_WINDOW_DAYS=365 python sync/pluggy.py` (~12 meses, limite do Open Finance). A API limita cada resposta a 500 lançamentos (sem cursor) — o sync caminha para trás com janelas `dateFrom/dateTo` até esgotar; sem isso o cartão voltava só até mai/26.
 - App demo sem permissão de listar items → use `PLUGGY_ITEM_IDS_1` + `PLUGGY_ITEM_BANKS_1` (vírgula, mesma ordem). Diagnóstico: `python sync/check.py`.
