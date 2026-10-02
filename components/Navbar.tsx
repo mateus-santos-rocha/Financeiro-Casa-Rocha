@@ -15,7 +15,7 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center gap-2 overflow-x-auto px-4 py-3">
-        <Link href="/movimentacoes" className="mr-2 shrink-0 font-bold tracking-tight">
+        <Link href="/" className="mr-2 shrink-0 font-bold tracking-tight">
           🏠 Casa Rocha
         </Link>
         {links.map((l) => {
