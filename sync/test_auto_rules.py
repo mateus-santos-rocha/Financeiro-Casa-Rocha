@@ -1,4 +1,4 @@
-from auto_rules import compute_roll, find_pix_pairs, find_reversal_pairs, find_salary_advances, rule_matches
+from auto_rules import compute_roll, find_pix_pairs, find_reversal_pairs, find_salary_advances, link_parking_chains, rule_matches, salary_envelopes
 from normalize import inv_indexer, inv_issuer, inv_maturity, inv_rate
 
 
@@ -106,16 +106,52 @@ def test_reversal_implicit_credit():
 def test_salary_advance_pairing():
     sal = "PAGAMENTO DE SALARIO"
     rows = [
-        {"id": "adv-jul", "date": "2026-06-30", "description": sal, "amount": 3382.79, "holder": "voce"},
-        {"id": "base-jul", "date": "2026-06-21", "description": sal, "amount": 4200.0, "holder": "voce"},
-        {"id": "mesmo-mes", "date": "2026-04-03", "description": sal, "amount": 3279.43, "holder": "voce"},
+        {"id": "adv-jul", "date": "2026-06-21", "description": sal, "amount": 4200.0, "holder": "voce"},
+        {"id": "rem-jul", "date": "2026-06-30", "description": sal, "amount": 3382.79, "holder": "voce"},
+        {"id": "rem-fev", "date": "2026-01-30", "description": sal, "amount": 3364.61, "holder": "voce"},
+        {"id": "adv-fev", "date": "2026-01-22", "description": sal, "amount": 4200.0, "holder": "voce"},
         {"id": "dela", "date": "2026-09-04", "description": "Pediatherapies", "amount": 7255.88, "holder": "esposa"},
+        {"id": "adv-out", "date": "2026-09-19", "description": sal, "amount": 4200.0, "holder": "voce"},
         {"id": "plr", "date": "2026-10-10", "description": sal, "amount": 12313.54, "holder": "voce"},
     ]
+    comp = salary_envelopes(rows)
+    assert comp["adv-jul"] == "2026-07" and comp["rem-jul"] == "2026-07"
+    assert comp["adv-fev"] == "2026-02" and comp["rem-fev"] == "2026-02"  # último útil -> mês seguinte
+    assert comp["adv-out"] == "2026-10" and comp["plr"] == "2026-10"  # âncora 19/09
+    assert "dela" not in comp
     got = find_salary_advances(rows)
-    assert set(got) == {"adv-jul", "base-jul", "mesmo-mes"}  # tudo dele desloca...
-    assert "dela" not in got  # ...menos o dela...
-    assert "plr" not in got  # ...e menos o restante+PLR (competência outubro)
+    assert "plr" not in got  # livro outubro = competência: sem tag
+
+
+def test_salary_envelope_same_day_batch():
+    sal = "PAGAMENTO DE SALARIO"
+    rows = [
+        {"id": "adv-dez", "date": "2025-11-18", "description": sal, "amount": 4200.0, "holder": "voce"},
+        {"id": "rem-dez", "date": "2025-12-02", "description": sal, "amount": 4639.57, "holder": "voce"},
+        {"id": "adv-jan", "date": "2025-12-15", "description": sal, "amount": 4200.0, "holder": "voce"},
+        {"id": "extra", "date": "2025-12-15", "description": sal, "amount": 1099.02, "holder": "voce"},
+    ]
+    comp = salary_envelopes(rows)
+    assert comp["adv-dez"] == "2025-12" and comp["rem-dez"] == "2025-12"  # sem tag
+    assert comp["adv-jan"] == "2026-01" and comp["extra"] == "2026-01"  # lote do dia: novo envelope
+    got = find_salary_advances(rows)
+    assert set(got) == {"adv-dez", "adv-jan", "extra"}
+
+
+def test_link_parking_chains():
+    rows = [
+        {"id": "adv", "account_id": "bv", "date": "2026-05-17", "holder": "voce",
+         "description": "PAGAMENTO DE SALARIO", "amount": 4200.0},
+        {"id": "app", "account_id": "bv", "date": "2026-05-29", "holder": "voce",
+         "description": "CDB 120 CDI", "amount": -4200.0},
+        {"id": "res", "account_id": "bv", "date": "2026-06-04", "holder": "voce",
+         "description": "CDB 120 CDI", "amount": 4209.83},
+        {"id": "outro", "account_id": "nb", "date": "2026-09-01", "holder": "voce",
+         "description": "Aplicação RDB", "amount": -1500.0},
+    ]
+    chains = link_parking_chains(rows)
+    assert len(chains) == 1
+    assert chains[0]["yield"] == 9.83 and chains[0]["competence"] == "2026-06"
 
 
 def test_pix_pairs():

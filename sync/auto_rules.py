@@ -293,78 +293,252 @@ def tag_reversal_pairs(sb: object, days: int | None = 30, stats: dict | None = N
     return len(batch)
 
 
-def find_salary_advances(rows: list[dict], base_amount: float = 4200.0,
-                          window_days: int = 35) -> list[str]:
-    """Acha os créditos-salário dele que contam no mês seguinte (tag `adiantamento`).
+ADVANCE_AMOUNT = 4200.0  # adiantamento fixo dele; cada um abre um envelope
 
-    rows: dicts com id, date (AAAA-MM-DD), description, amount, holder.
-    Regra global (confirmada pelo dono out/26): o salário dele cai sempre no
-    mês anterior ao da competência — adiantamento no meio do mês + restante
-    no último dia útil. Logo TODO `PAGAMENTO DE SALARIO` com holder=voce
-    leva a tag (Análise/Histórico deslocam +1 mês). Exceção: o restante+PLR
-    de 10/10/26 (R$ 12.313,54), escriturado com data de outubro mas recebido
-    em 30/09 — conta em outubro (sem tag). base_amount/window_days mantidos
-    por compatibilidade (ignorados). Idempotente por construção.
-    """
-    out: list[str] = []
-    for r in rows:
-        if "pagamento de salario" not in (r.get("description") or "").lower():
-            continue
-        if (r.get("holder") or "") != "voce":
-            continue
-        try:
-            amt = float(r.get("amount") or 0)
-            d = (r.get("date") or "")[:10]
-        except (TypeError, ValueError):
-            continue
-        if amt <= 0:
-            continue
-        if d == "2026-10-10" and abs(amt - 12313.54) < 0.01:
-            continue  # restante+PLR: competência outubro, sem deslocar
-        out.append(r["id"])
+
+def _last5_bd(year: int, month: int) -> set[str]:
+    """Últimos 5 dias úteis (seg–sex) do mês, em AAAA-MM-DD."""
+    import calendar
+    import datetime as _dt
+    last = calendar.monthrange(year, month)[1]
+    out: set[str] = set()
+    d = _dt.date(year, month, last)
+    while len(out) < 5:
+        if d.weekday() < 5:
+            out.add(d.isoformat())
+        d -= _dt.timedelta(days=1)
     return out
 
 
-def tag_salary_advances(sb: object, days: int | None = 30, stats: dict | None = None) -> int:
-    """Marca o salário dele com a tag `adiantamento` (idempotente, via upsert).
+def _is_his_salary(r: dict) -> bool:
+    try:
+        amt = float(r.get("amount") or 0)
+    except (TypeError, ValueError):
+        return False
+    return ("pagamento de salario" in (r.get("description") or "").lower()
+            and (r.get("holder") or "") == "voce" and amt > 0)
 
-    Conta na competência do mês seguinte — mesma mecânica que Análise e
-    Histórico já deslocam. Precisa do holder: busca account_id junto.
-    Roda em todo sync e no backfill --all.
+
+def salary_envelopes(rows: list[dict]) -> dict[str, str]:
+    """Mapeia id -> competência (AAAA-MM) do salário dele por envelopes.
+
+    Envelope = adiantamento (4.200, abre) + restante(s) variável(eis).
+    Competência: adiantamento de X -> X+1; variável no último útil de X ->
+    X+1; demais variáveis -> envelope aberto (adiantamento mais recente na
+    mesma data ou anterior); sem adiantamento anterior -> mês seguinte ao
+    recebimento. Pura (sem DB). Ex.: 30/01/26 (último útil de jan) -> fev;
+    10/10/26 (PLR, âncora 19/09) -> out.
     """
-    import datetime as dt
+    import datetime as _dt
+    sals = []
+    for r in rows:
+        if not _is_his_salary(r):
+            continue
+        try:
+            d = _dt.date.fromisoformat((r.get("date") or "")[:10])
+        except (TypeError, ValueError):
+            continue
+        sals.append((d, float(r.get("amount") or 0), r["id"]))
+    sals.sort()
+    adv_dates = sorted(d for d, a, _i in sals if abs(a - ADVANCE_AMOUNT) < 0.01)
+    comp: dict[str, str] = {}
+    for d, _amt, rid in sals:
+        y, m = d.year, d.month
+        if d.isoformat() in _last5_bd(y, m):
+            nm = m + 1 if m < 12 else 1
+            ny = y if m < 12 else y + 1
+            comp[rid] = f"{ny}-{nm:02d}"
+            continue
+        anchor = None
+        for ad in adv_dates:
+            if ad <= d:
+                anchor = ad
+            else:
+                break
+        if anchor is not None:
+            am = anchor.month + 1 if anchor.month < 12 else 1
+            ay = anchor.year if anchor.month < 12 else anchor.year + 1
+            comp[rid] = f"{ay}-{am:02d}"
+        else:
+            nm = m + 1 if m < 12 else 1
+            ny = y if m < 12 else y + 1
+            comp[rid] = f"{ny}-{nm:02d}"
+    return comp
+
+
+def find_salary_advances(rows: list[dict], base_amount: float = 4200.0,
+                         window_days: int = 35) -> list[str]:
+    """Ids dos créditos dele fora do mês de competência (levam `adiantamento`).
+
+    base_amount/window_days mantidos por compatibilidade (ignorados).
+    """
+    comp = salary_envelopes(rows)
+    by_id = {r["id"]: (r.get("date") or "")[:7] for r in rows if "id" in r}
+    return sorted(i for i, c in comp.items() if by_id.get(i) != c)
+
+
+def tag_salary_advances(sb: object, days: int | None = 30, stats: dict | None = None) -> int:
+    """Sincroniza a tag `adiantamento` com os envelopes (idempotente).
+
+    Marca a perna fora do mês de competência; REMOVE marcação obsoleta.
+    Usa o histórico completo dele p/ ancoragem (pequeno: ~30 linhas);
+    `days` mantido por compatibilidade (ignorado).
+    """
     holds = {a["id"]: (a.get("holder") or "") for a in
              (sb.table("accounts").select("id,holder").execute().data or [])}  # type: ignore
-    base_q = sb.table("transactions").select("id,account_id,date,description,amount")  # type: ignore
-    if days is not None:
-        since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
-        base_q = base_q.gte("date", since)
     rows: list[dict] = []
     start = 0
     while True:
-        page = base_q.range(start, start + 999).execute().data or []
+        page = sb.table("transactions").select("id,account_id,date,description,amount")  # type: ignore
+        page = page.range(start, start + 999).execute().data or []
         rows.extend(page)
         if len(page) < 1000:
             break
         start += 1000
     for r in rows:
         r["holder"] = holds.get(r.get("account_id") or "")
-    cands = find_salary_advances(rows)
-    if not cands:
-        return 0
+    comp = salary_envelopes(rows)
+    by_id = {r["id"]: (r.get("date") or "")[:7] for r in rows if "id" in r}
+    want = {i for i, c in comp.items() if by_id.get(i) != c}
+    ids = sorted(comp)
     tid = ensure_tag(sb, "adiantamento")
     existing: set[str] = set()
-    for i in range(0, len(cands), 500):
+    for i in range(0, len(ids), 500):
         got = sb.table("transaction_tags").select("transaction_id").eq(  # type: ignore
-            "tag_id", tid).in_("transaction_id", cands[i:i + 500]).execute().data or []
+            "tag_id", tid).in_("transaction_id", ids[i:i + 500]).execute().data or []
         existing.update(g["transaction_id"] for g in got)
-    batch = [{"transaction_id": t, "tag_id": tid} for t in cands if t not in existing]
+    batch = [{"transaction_id": t, "tag_id": tid} for t in sorted(want - existing)]
     if batch:
         sb.table("transaction_tags").upsert(  # type: ignore
             batch, on_conflict="transaction_id,tag_id").execute()
+    stale = sorted(set(existing) - want)
+    for i in range(0, len(stale), 500):
+        sb.table("transaction_tags").delete().eq("tag_id", tid).in_(  # type: ignore
+            "transaction_id", stale[i:i + 500]).execute()
+    n = len(batch) - len(stale)
     if stats is not None:
-        stats["advance_tagged"] = stats.get("advance_tagged", 0) + len(batch)
-    return len(batch)
+        stats["advance_tagged"] = stats.get("advance_tagged", 0) + n
+    return n
+
+
+def link_parking_chains(rows: list[dict]) -> list[dict]:
+    """Liga aplicação do adiantamento ao resgate (puro, sem DB).
+
+    rows: dicts id, account_id, date, description, amount, holder.
+    Parking = saída exata de 4.200 (eco do adiantamento) p/ CDB/RDB/aplicação
+    + resgate na mesma conta em até 90 dias, até 10% acima. Retorna
+    [{app_id, rescue_id, account_id, app_date, rescue_date, app_amount,
+    rescue_amount, yield, competence}] com competence = envelope da aplicação
+    (adiantamento mais recente na mesma data ou anterior).
+    """
+    import calendar as _cal
+    import datetime as _dt
+    import re as _re
+    inv_re = _re.compile(r"cdb|rdb|aplic", _re.IGNORECASE)
+    apps, rescues, advs = [], [], []
+    for r in rows:
+        if (r.get("holder") or "") != "voce":
+            continue
+        try:
+            amt = float(r.get("amount") or 0)
+            d = _dt.date.fromisoformat((r.get("date") or "")[:10])
+        except (TypeError, ValueError):
+            continue
+        desc = r.get("description") or ""
+        if amt < 0 and abs(abs(amt) - ADVANCE_AMOUNT) < 0.01 and inv_re.search(desc):
+            apps.append((d, abs(amt), r))
+        elif amt > 0 and inv_re.search(desc):
+            rescues.append((d, amt, r))
+        if "pagamento de salario" in desc.lower() and abs(amt - ADVANCE_AMOUNT) < 0.01 and amt > 0:
+            advs.append(d)
+    advs.sort()
+    out, used = [], set()
+    for ad, aamt, ar in sorted(apps):
+        for rd, ramt, rr in sorted(rescues):
+            if rr["id"] in used or rr.get("account_id") != ar.get("account_id"):
+                continue
+            if not (ad < rd <= ad + _dt.timedelta(days=90)):
+                continue
+            if not (aamt <= ramt <= aamt * 1.10):
+                continue
+            anchor = None
+            for x in advs:
+                if x <= ad:
+                    anchor = x
+                else:
+                    break
+            if anchor is not None:
+                cm = anchor.month + 1 if anchor.month < 12 else 1
+                cy = anchor.year if anchor.month < 12 else anchor.year + 1
+            else:
+                cm, cy = ad.month, ad.year
+            last = _cal.monthrange(cy, cm)[1]
+            out.append({"app_id": ar["id"], "rescue_id": rr["id"],
+                        "account_id": ar.get("account_id"), "app_date": ad.isoformat(),
+                        "rescue_date": rd.isoformat(), "app_amount": aamt,
+                        "rescue_amount": ramt, "yield": round(ramt - aamt, 2),
+                        "competence": f"{cy}-{cm:02d}",
+                        "settle_date": f"{cy}-{cm:02d}-{last:02d}"})
+            used.add(rr["id"])
+            break
+    return [c for c in out if c["yield"] > 0.005]
+
+
+def compute_salary_yield(sb: object, stats: dict | None = None) -> float:
+    """Grava o rendimento do parking como receita salarial (idempotente).
+
+    Um lançamento manual `manual:salary-yield:AAAA-MM` por mês (descrição com
+    "salarial" p/ cair no stack Salário; resgate segue interno, sem duplicar
+    o principal). Roda em todo sync via apply_auto_rules.
+    """
+    import datetime as dt
+    holds = {a["id"]: (a.get("holder") or "") for a in
+             (sb.table("accounts").select("id,holder").execute().data or [])}  # type: ignore
+    bv_rows = (sb.table("accounts").select("id").eq("bank", "bv")  # type: ignore
+                 .eq("holder", "voce").eq("type", "bank").execute().data or [])
+    bv = bv_rows[0]["id"] if bv_rows else None
+    if not bv:
+        return 0.0
+    rows: list[dict] = []
+    start = 0
+    while True:
+        page = sb.table("transactions").select(  # type: ignore
+            "id,account_id,date,description,amount").range(start, start + 999).execute().data or []
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+        start += 1000
+    for r in rows:
+        r["holder"] = holds.get(r.get("account_id") or "")
+    chains = link_parking_chains(rows)
+    by_month: dict[str, dict] = {}
+    for c in chains:
+        m = by_month.setdefault(c["competence"], {"total": 0.0, "chains": []})
+        m["total"] = round(m["total"] + c["yield"], 2)
+        m["chains"].append({k: c[k] for k in
+                            ("app_id", "rescue_id", "app_amount", "rescue_amount", "yield")})
+    total = 0.0
+    for comp, info in sorted(by_month.items()):
+        if info["total"] <= 0.005:
+            continue
+        y, mo = comp.split("-")
+        desc = f"Rendimento salarial \u2014 parking adiantamento {mo}/{y}"
+        sb.table("transactions").upsert({  # type: ignore
+            "pluggy_id": f"manual:salary-yield:{comp}",
+            "account_id": bv,
+            "date": f"{comp}-{__import__('calendar').monthrange(int(y), int(mo))[1]:02d}",
+            "description": desc,
+            "amount": info["total"],
+            "currency": "BRL",
+            "category_pluggy": "Investments",
+            "status": "POSTED",
+            "raw": {"manual": True, "kind": "salary-yield", "chains": info["chains"]},
+            "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }, on_conflict="pluggy_id").execute()
+        total = round(total + info["total"], 2)
+    if stats is not None and total > 0:
+        stats["salary_yield"] = total
+    return total
 
 
 def tag_pix_pairs(sb: object, days: int | None = 30, stats: dict | None = None) -> int:
@@ -530,6 +704,7 @@ def apply_auto_rules(sb: object, days: int | None = 30) -> dict:
     reprice_crypto(sb, stats)
     tag_reversal_pairs(sb, days=days, stats=stats)
     tag_salary_advances(sb, days=days, stats=stats)
+    compute_salary_yield(sb, stats=stats)
     tag_pix_pairs(sb, days=days, stats=stats)
     return stats
 
