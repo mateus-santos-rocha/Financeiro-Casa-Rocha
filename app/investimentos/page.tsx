@@ -210,7 +210,7 @@ export default async function InvestimentosPage() {
 
       <div className="card overflow-x-auto p-0">
         <h2 className="p-4 pb-0 font-semibold">Benchmark — carteira x índices (a.m.)</h2>
-        <p className="px-4 text-sm text-slate-500">CDI e Ibovespa via BCB; S&P 500 via Stooq (em USD, sem câmbio). Carteira = só rendimento, sem aportes. A coluna carteira aparece quando há 2+ snapshots no mês.</p>
+        <p className="px-4 text-sm text-slate-500">CDI via BCB; Ibovespa e S&P 500 via Yahoo (S&P em USD, sem câmbio). Carteira = só rendimento, sem aportes. A coluna carteira aparece quando há 2+ snapshots no mês.</p>
         <table className="table">
           <thead><tr><th>Mês</th><th className="text-right">CDI</th><th className="text-right">Ibovespa</th><th className="text-right">S&P 500</th><th className="text-right">Carteira</th></tr></thead>
           <tbody>

@@ -40,46 +40,48 @@ function sortKey(mes: string): string {
   return `${yyyy}-${mm}`;
 }
 
-/** Ibovespa mensal via BCB (SGS 7, índice diário → % a.m.). */
+/** Ibovespa mensal via Yahoo (^BVSP, fechamento diário em pontos → % a.m.). */
 export async function getIbovMensal(n = 6): Promise<{ mes: string; ibov: number }[]> {
-  try {
-    const res = await fetch(
-      `https://api.bcb.gov.br/dados/serie/bcdata.sgs.7/dados/ultimos/220?formato=json`,
-      { next: { revalidate: 86400 } }
-    );
-    if (!res.ok) return [];
-    const json = (await res.json()) as { data: string; valor: string }[];
-    const days: DayQuote[] = json.map((p) => ({
-      mes: `${p.data.slice(3, 5)}/${p.data.slice(6)}`,
-      close: Number(String(p.valor).replace(".", "").replace(",", ".")),
-    }));
-    return monthlyPct(days, n).map((m) => ({ mes: m.mes, ibov: m.pct }));
-  } catch {
-    return [];
-  }
+  const days = await yahooDaily("^BVSP", 240);
+  return monthlyPct(days, n).map((m) => ({ mes: m.mes, ibov: m.pct }));
 }
 
-/** S&P 500 mensal via Stooq (fechamento diário em USD → % a.m.). Sem câmbio. */
+/** S&P 500 mensal via Yahoo (^GSPC, fechamento diário em USD → % a.m.). Sem câmbio. */
 export async function getSP500Mensal(n = 6): Promise<{ mes: string; sp500: number }[]> {
+  const days = await yahooDaily("^GSPC", 240);
+  return monthlyPct(days, n).map((m) => ({ mes: m.mes, sp500: m.pct }));
+}
+
+/** Fechamentos diários via Yahoo Finance (sem chave). Mês parcial = mês-até-hoje. */
+async function yahooDaily(symbol: string, daysBack: number): Promise<DayQuote[]> {
   try {
-    const d2 = new Date();
-    const d1 = new Date();
-    d1.setDate(d1.getDate() - 240);
-    const f = (d: Date) =>
-      `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - daysBack);
+    const p1 = Math.floor(from.getTime() / 1000);
+    const p2 = Math.floor(to.getTime() / 1000) + 86400;
     const res = await fetch(
-      `https://stooq.com/q/d/l/?s=%5Espx&d1=${f(d1)}&d2=${f(d2)}&i=d`,
-      { next: { revalidate: 86400 } }
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${p1}&period2=${p2}`,
+      { next: { revalidate: 86400 }, headers: { "User-Agent": "Mozilla/5.0" } }
     );
     if (!res.ok) return [];
-    const text = await res.text();
-    const days: DayQuote[] = text
-      .split("\n")
-      .slice(1)
-      .map((line) => line.trim().split(","))
-      .filter((c) => c.length >= 5 && c[0] && c[4] && c[4] !== "N/A")
-      .map((c) => ({ mes: `${c[0].slice(5, 7)}/${c[0].slice(0, 4)}`, close: Number(c[4]) }));
-    return monthlyPct(days, n).map((m) => ({ mes: m.mes, sp500: m.pct }));
+    const json = (await res.json()) as {
+      chart: { result?: { timestamp?: number[]; indicators?: { quote?: { close?: (number | null)[] }[] } }[] };
+    };
+    const r = json.chart?.result?.[0];
+    const ts = r?.timestamp ?? [];
+    const closes = r?.indicators?.quote?.[0]?.close ?? [];
+    const out: DayQuote[] = [];
+    for (let i = 0; i < ts.length; i++) {
+      const c = closes[i];
+      if (c === null || c === undefined) continue;
+      const d = new Date(ts[i] * 1000);
+      out.push({
+        mes: `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`,
+        close: c,
+      });
+    }
+    return out;
   } catch {
     return [];
   }
