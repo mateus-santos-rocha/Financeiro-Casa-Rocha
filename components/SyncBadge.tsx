@@ -4,6 +4,9 @@ import { SyncButton } from "./SyncButton";
 /** Faixa no topo: quando rodou o último sync + botão 1-clique (dispara via /api/sync). */
 export async function SyncBadge() {
   const sb = supabaseServer();
+  const { data: { user } } = await sb.auth.getUser();
+  // Deslogado: não mostra nada (nem o botão, nem o link fallback com owner/repo).
+  if (!user) return null;
   const { data } = await sb
     .from("sync_runs")
     .select("finished_at,status")
